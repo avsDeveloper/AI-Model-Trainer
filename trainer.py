@@ -4501,10 +4501,26 @@ Choose based on your hardware and model size."""
             else:
                 # Export trained model
                 self.log_message("🔄 Converting trained model to ONNX...")
-                ort_model = ORTModelForCausalLM.from_pretrained(
-                    str(source_dir), 
-                    export=True
-                )
+                
+                # Patch torch.onnx.export to force legacy mode (dynamo=False)
+                # This is required because optimum forces dynamo when onnxscript is present,
+                # but dynamo export fails for some models like distilgpt2 in this environment.
+                import torch.onnx
+                original_export = torch.onnx.export
+                
+                def patched_export(*args, **kwargs):
+                    kwargs['dynamo'] = False
+                    return original_export(*args, **kwargs)
+                
+                try:
+                    torch.onnx.export = patched_export
+                    ort_model = ORTModelForCausalLM.from_pretrained(
+                        str(source_dir), 
+                        export=True
+                    )
+                finally:
+                    torch.onnx.export = original_export
+                    
                 self.log_message("✅ Trained model exported to ONNX")
             
             # Save the ONNX model
