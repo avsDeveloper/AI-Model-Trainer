@@ -571,6 +571,84 @@ class ModelTrainer:
                 "vocabulary": "51,200 tokens",
                 "recommended_lr": ["1e-5", "5e-6", "2e-6"],
                 "recommended_batch": [1, 2]
+            },
+            "microsoft/phi-2": {
+                "name": "Phi 2",
+                "description": "Microsoft's improved 2.7B parameter model with strong reasoning capabilities. Trained on high-quality data for better general-purpose performance.",
+                "parameters": "2.7B",
+                "size_pytorch": "5.56 GB",
+                "size_onnx": "4.17 GB",
+                "size_quantized": "1.39 GB",
+                "architecture": "Phi transformer",
+                "context_length": 2048,
+                "vocabulary": "51,200 tokens",
+                "recommended_lr": ["1e-5", "5e-6", "2e-6"],
+                "recommended_batch": [1, 2]
+            },
+            "microsoft/phi-3-mini-4k-instruct": {
+                "name": "Phi 3 Mini 4K Instruct",
+                "description": "Microsoft's latest compact model with instruction-following capabilities. Excellent performance for its size with 4K context window.",
+                "parameters": "3.8B",
+                "size_pytorch": "7.64 GB",
+                "size_onnx": "5.73 GB",
+                "size_quantized": "1.91 GB",
+                "architecture": "Phi-3 transformer",
+                "context_length": 4096,
+                "vocabulary": "32,064 tokens",
+                "recommended_lr": ["5e-6", "2e-6", "1e-6"],
+                "recommended_batch": [1, 2]
+            },
+            "stabilityai/stablelm-2-1_6b": {
+                "name": "StableLM 2 1.6B",
+                "description": "Stability AI's efficient language model optimized for conversational tasks. Good balance of size and capability.",
+                "parameters": "1.6B",
+                "size_pytorch": "3.31 GB",
+                "size_onnx": "2.48 GB",
+                "size_quantized": "827 MB",
+                "architecture": "StableLM transformer",
+                "context_length": 4096,
+                "vocabulary": "100,289 tokens",
+                "recommended_lr": ["1e-5", "5e-6", "2e-6"],
+                "recommended_batch": [1, 2, 4]
+            },
+            "Qwen/Qwen2-0.5B": {
+                "name": "Qwen2 0.5B",
+                "description": "Alibaba's ultra-compact model from the Qwen2 series. Ideal for resource-constrained environments.",
+                "parameters": "0.5B",
+                "size_pytorch": "1.12 GB",
+                "size_onnx": "840 MB",
+                "size_quantized": "280 MB",
+                "architecture": "Qwen2 transformer",
+                "context_length": 32768,
+                "vocabulary": "151,936 tokens",
+                "recommended_lr": ["5e-5", "2e-5", "1e-5"],
+                "recommended_batch": [2, 4, 8]
+            },
+            "Qwen/Qwen2-1.5B": {
+                "name": "Qwen2 1.5B",
+                "description": "Alibaba's efficient model from the Qwen2 series with excellent multilingual support and long context.",
+                "parameters": "1.5B",
+                "size_pytorch": "3.09 GB",
+                "size_onnx": "2.32 GB",
+                "size_quantized": "774 MB",
+                "architecture": "Qwen2 transformer",
+                "context_length": 32768,
+                "vocabulary": "151,936 tokens",
+                "recommended_lr": ["1e-5", "5e-6", "2e-6"],
+                "recommended_batch": [1, 2, 4]
+            },
+            "cerebras/btlm-3b-8k-base": {
+                "name": "BTLM 3B 8K",
+                "description": "Cerebras' efficient 3B model with 8K context. Optimized for inference speed while maintaining quality.",
+                "parameters": "3B",
+                "size_pytorch": "6.18 GB",
+                "size_onnx": "4.64 GB",
+                "size_quantized": "1.55 GB",
+                "architecture": "BTLM transformer",
+                "context_length": 8192,
+                "vocabulary": "50,257 tokens",
+                "recommended_lr": ["5e-6", "2e-6", "1e-6"],
+                "recommended_batch": [1, 2]
             }
         }
         
@@ -959,14 +1037,14 @@ class ModelTrainer:
         # Row 1 - Quantization Format
         ttk.Label(quant_grid, text="Quant Format:").grid(row=0, column=0, sticky='w', padx=5, pady=2)
         self.quant_format_combo = ttk.Combobox(quant_grid, textvariable=self.quant_format, width=12, state='disabled')
-        self.quant_format_combo['values'] = ["QInt8", "QUInt8", "QInt4", "QUInt4"]
+        self.quant_format_combo['values'] = ["QInt8", "QUInt8"]
         self.quant_format_combo.grid(row=0, column=1, sticky='w', padx=5, pady=2)
         self.quant_format_combo.bind('<<ComboboxSelected>>', self.on_quant_changed)
         
         # Row 1 Column 2 - Quantization Method
         ttk.Label(quant_grid, text="Quant Method:").grid(row=0, column=2, sticky='w', padx=5, pady=2)
         self.quant_method_combo = ttk.Combobox(quant_grid, textvariable=self.quant_method, width=12, state='disabled')
-        self.quant_method_combo['values'] = ["Dynamic", "Static"]
+        self.quant_method_combo['values'] = ["Dynamic"]
         self.quant_method_combo.grid(row=0, column=3, sticky='w', padx=5, pady=2)
         self.quant_method_combo.bind('<<ComboboxSelected>>', self.on_quant_changed)
         
@@ -986,7 +1064,7 @@ class ModelTrainer:
         quant_info_frame.pack(fill='x', padx=5, pady=2)
         
         self.quant_info_label = ttk.Label(quant_info_frame, 
-            text="💡 INT4: Aggressive compression (~75% reduction), INT8: Balanced (~50% reduction)", 
+            text="💡 INT8 dynamic quantization provides ~50% model size reduction", 
             foreground='gray')
         self.quant_info_label.pack(side='left')
         
@@ -3054,9 +3132,28 @@ class ModelTrainer:
             self.log_message("✅ Model saved successfully")
             self.log_message(f"📁 Model saved to: {train_dir}")
             
+            # Clean up checkpoints after successful training
+            self._cleanup_checkpoints(train_dir)
+            
         except Exception as e:
             self.log_message(f"❌ Training error: {str(e)}")
             raise
+    
+    def _cleanup_checkpoints(self, train_dir):
+        """Remove checkpoint directories after successful training to save disk space"""
+        try:
+            import shutil
+            train_path = Path(train_dir)
+            checkpoint_dirs = list(train_path.glob("checkpoint-*"))
+            
+            if checkpoint_dirs:
+                self.log_message(f"🗑️ Cleaning up {len(checkpoint_dirs)} checkpoint(s)...")
+                for checkpoint_dir in checkpoint_dirs:
+                    if checkpoint_dir.is_dir():
+                        shutil.rmtree(checkpoint_dir)
+                self.log_message("✅ Checkpoints removed (final model preserved)")
+        except Exception as e:
+            self.log_message(f"⚠️ Could not clean up checkpoints: {e}")
             
     def get_device_map(self):
         """Determine the optimal device mapping strategy based on user selection"""
@@ -4593,40 +4690,31 @@ Choose based on your hardware and model size."""
                 "QUInt8": QuantType.QUInt8,
             }
             
-            # For INT4, we need to use a different approach
-            if quant_format in ["QInt4", "QUInt4"]:
-                self.log_message(f"🔧 Starting INT4 quantization ({quant_method} mode)...")
-                self._run_int4_quantization(input_onnx, output_onnx, quant_format, quant_method, per_channel, reduce_range)
+            # INT8 quantization
+            weight_type = format_map.get(quant_format, QuantType.QInt8)
+            
+            if device_strategy == "cpu_only":
+                self.log_message(f"🔧 Starting {quant_format} dynamic quantization (CPU-only mode)...")
             else:
-                # Standard INT8 quantization
-                weight_type = format_map.get(quant_format, QuantType.QInt8)
-                
-                if device_strategy == "cpu_only":
-                    self.log_message(f"🔧 Starting {quant_format} quantization (CPU-only mode, {quant_method})...")
-                else:
-                    self.log_message(f"🔧 Starting {quant_format} quantization ({quant_method} mode)...")
-                
-                quantize_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Check for interruption before quantization
-                if not self.is_training or self.force_stop:
-                    self.log_message("⏹️ Quantization stopped before processing")
-                    return
-                
-                if quant_method == "Static":
-                    self.log_message("⚠️ Static quantization requires calibration data. Falling back to dynamic quantization.")
-                    self.log_message("💡 For static quantization, implement calibration data reader for your specific model.")
-                
-                # Dynamic quantization with advanced options
-                quantize_dynamic(
-                    model_input=str(input_onnx),
-                    model_output=str(output_onnx),
-                    weight_type=weight_type,
-                    per_channel=per_channel,
-                    reduce_range=reduce_range,
-                    optimize_model=True  # Apply graph optimizations
-                )
-                self.log_message(f"✅ {quant_format} quantization completed successfully")
+                self.log_message(f"🔧 Starting {quant_format} dynamic quantization...")
+            
+            quantize_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check for interruption before quantization
+            if not self.is_training or self.force_stop:
+                self.log_message("⏹️ Quantization stopped before processing")
+                return
+            
+            # Dynamic quantization with advanced options
+            quantize_dynamic(
+                model_input=str(input_onnx),
+                model_output=str(output_onnx),
+                weight_type=weight_type,
+                per_channel=per_channel,
+                reduce_range=reduce_range,
+                optimize_model=True  # Apply graph optimizations
+            )
+            self.log_message(f"✅ {quant_format} quantization completed successfully")
             
             # Copy tokenizer files using compatible method
             tokenizer = AutoTokenizer.from_pretrained(str(convert_dir))
@@ -4656,73 +4744,6 @@ Choose based on your hardware and model size."""
             self.log_message(f"❌ Quantization error: {str(e)}")
             raise
     
-    def _run_int4_quantization(self, input_onnx, output_onnx, quant_format, quant_method, per_channel, reduce_range):
-        """
-        Perform INT4 quantization using ONNX Runtime quantization tools.
-        INT4 provides more aggressive compression (~75% size reduction) compared to INT8 (~50%).
-        """
-        try:
-            import onnx
-            from onnxruntime.quantization import quantize_dynamic, QuantType
-            
-            # Create output directory
-            output_onnx.parent.mkdir(parents=True, exist_ok=True)
-            
-            # For INT4, we use a workaround approach since direct INT4 support varies by ONNX Runtime version
-            # We'll apply INT8 quantization first, then optimize
-            self.log_message("🔧 Applying INT4-optimized quantization pipeline...")
-            
-            # Step 1: Apply aggressive INT8 quantization with optimization
-            temp_output = output_onnx.parent / "model_temp.onnx"
-            
-            self.log_message("  → Step 1/2: Applying base quantization...")
-            quantize_dynamic(
-                model_input=str(input_onnx),
-                model_output=str(temp_output),
-                weight_type=QuantType.QUInt8 if quant_format == "QUInt4" else QuantType.QInt8,
-                per_channel=per_channel,
-                reduce_range=True,  # Always use reduce range for INT4 compatibility
-                optimize_model=True
-            )
-            
-            # Step 2: Apply model optimization to further reduce size
-            self.log_message("  → Step 2/2: Applying aggressive optimizations...")
-            try:
-                from onnxruntime.transformers import optimizer
-                from onnxruntime.transformers.onnx_model import OnnxModel
-                
-                # Load and optimize the model
-                model_opt = OnnxModel(onnx.load(str(temp_output)))
-                model_opt.prune_graph()
-                model_opt.remove_unused_constant()
-                
-                # Save optimized model
-                onnx.save(model_opt.model, str(output_onnx))
-                temp_output.unlink()  # Remove temp file
-                
-                self.log_message("✅ INT4-optimized quantization completed")
-                
-            except ImportError:
-                # If transformer optimizer not available, just use the base quantized model
-                self.log_message("  ⚠️ Advanced optimizer not available, using base quantization")
-                import shutil
-                shutil.move(str(temp_output), str(output_onnx))
-                self.log_message("✅ INT4-compatible quantization completed")
-                
-        except Exception as e:
-            self.log_message(f"❌ INT4 quantization failed: {str(e)}")
-            self.log_message("💡 Falling back to standard INT8 quantization...")
-            # Fallback to standard INT8
-            quantize_dynamic(
-                model_input=str(input_onnx),
-                model_output=str(output_onnx),
-                weight_type=QuantType.QInt8,
-                per_channel=per_channel,
-                reduce_range=reduce_range,
-                optimize_model=True
-            )
-            self.log_message("✅ Fallback quantization completed")
-            
     def test_quantized_model(self, quantize_dir):
         """Test the quantized model with a simple prompt"""
         try:
