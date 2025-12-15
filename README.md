@@ -1,4 +1,4 @@
-# 🤖 ONNX Model Trainer v0.9
+# 🤖 AI Model Trainer v0.9
 
 A complete GUI application for training transformer language models and exporting them to **GGUF** or **ONNX** format — from training to interactive chat testing, all in one place.
 
@@ -6,6 +6,10 @@ A complete GUI application for training transformer language models and exportin
 
 This tool provides an **end-to-end workflow**: select a model, train it on your dataset, export to your preferred format (GGUF or ONNX), and immediately test it in an interactive chat — all without leaving the application.
 
+<img width="1401" height="931" alt="Screenshot from 2025-12-15 15-26-41" src="https://github.com/user-attachments/assets/dafcee13-4a70-4e12-981e-e2471932d875" />
+<img width="1400" height="932" alt="Screenshot from 2025-12-15 15-27-05" src="https://github.com/user-attachments/assets/72d88016-0b42-40e2-bb47-0220ed0958b9" />
+
+\
 ## 📦 Installation
 
 ### Prerequisites
@@ -15,8 +19,6 @@ This tool provides an **end-to-end workflow**: select a model, train it on your 
 
 ### Step 1: Clone the Repository
 A comprehensive GUI application for training, exporting, and testing transformer language models with full ONNX optimization support. Features timestamped session management, enhanced system monitoring, and interactive model testing capabilities.
-<img width="1401" height="931" alt="Screenshot from 2025-12-15 15-26-41" src="https://github.com/user-attachments/assets/dafcee13-4a70-4e12-981e-e2471932d875" />
-<img width="1400" height="932" alt="Screenshot from 2025-12-15 15-27-05" src="https://github.com/user-attachments/assets/72d88016-0b42-40e2-bb47-0220ed0958b9" />
 
 ```bash
 git clone https://github.com/avsDeveloper/ONNX-Model-Trainer.git
