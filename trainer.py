@@ -7,7 +7,6 @@ Supports both ONNX and GGUF model formats
 
 # Enable debug logging early
 import sys
-print("🔍 [DEBUG] Starting trainer.py import...", file=sys.stderr, flush=True)
 
 # Standard library imports
 import gc
@@ -25,31 +24,24 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-print("🔍 [DEBUG] Standard library imports completed", file=sys.stderr, flush=True)
 
 # GUI imports
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from tkinter import messagebox as msgbox  # Alternative alias for msgbox usage
 
-print("🔍 [DEBUG] Tkinter imports completed", file=sys.stderr, flush=True)
 
 # Optional third-party imports (imported conditionally)
 try:
     import psutil
-    print("🔍 [DEBUG] psutil imported successfully", file=sys.stderr, flush=True)
 except ImportError:
     psutil = None
-    print("🔍 [DEBUG] psutil not available (optional)", file=sys.stderr, flush=True)
 
 try:
     import accelerate
-    print("🔍 [DEBUG] accelerate imported successfully", file=sys.stderr, flush=True)
 except ImportError:
     accelerate = None
-    print("🔍 [DEBUG] accelerate not available (optional)", file=sys.stderr, flush=True)
 
-print("🔍 [DEBUG] Optional imports completed", file=sys.stderr, flush=True)
 
 # ML dependencies - imported conditionally to handle missing packages gracefully
 torch = None
@@ -60,7 +52,6 @@ onnx = None
 numpy = None
 optimum = None
 
-print("🔍 [DEBUG] ML dependency variables initialized", file=sys.stderr, flush=True)
 
 # Import aliases for commonly used classes (will be set when ML deps are available)
 AutoTokenizer = None
@@ -79,13 +70,11 @@ QuantType = None
 QuantFormat = None
 CalibrationDataReader = None
 
-print("🔍 [DEBUG] Import aliases initialized", file=sys.stderr, flush=True)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-print("🔍 [DEBUG] Logging configured", file=sys.stderr, flush=True)
 
 # ============================================================================
 # GGUF Configuration
@@ -145,17 +134,14 @@ GGUF_INCOMPATIBLE_MODELS = [
     "starcoder", "codegen", "pythia", "cerebras", "EleutherAI"
 ]
 
-print("🔍 [DEBUG] GGUF configuration initialized", file=sys.stderr, flush=True)
 
 # ML dependency status
 ML_DEPENDENCIES_AVAILABLE = None
 ML_IMPORT_ERROR = None
 
-print("🔍 [DEBUG] Module-level initialization complete", file=sys.stderr, flush=True)
 
 def check_ml_dependencies():
     """Check and import ML dependencies when needed"""
-    print("🔍 [DEBUG] Entering check_ml_dependencies()", file=sys.stderr, flush=True)
     
     global ML_DEPENDENCIES_AVAILABLE, ML_IMPORT_ERROR
     global torch, transformers, datasets, onnxruntime, onnx, numpy, optimum
@@ -164,21 +150,14 @@ def check_ml_dependencies():
     global ORTModelForCausalLM, quantize_dynamic, quantize_static, QuantType, QuantFormat, CalibrationDataReader
     
     if ML_DEPENDENCIES_AVAILABLE is None:
-        print("🔍 [DEBUG] Starting ML dependency imports...", file=sys.stderr, flush=True)
         try:
             # Import core ML libraries
-            print("🔍 [DEBUG] Importing torch...", file=sys.stderr, flush=True)
             import torch as _torch
-            print("🔍 [DEBUG] Importing transformers...", file=sys.stderr, flush=True)
             import transformers as _transformers
-            print("🔍 [DEBUG] Importing datasets...", file=sys.stderr, flush=True)
             import datasets as _datasets
-            print("🔍 [DEBUG] Importing onnxruntime...", file=sys.stderr, flush=True)
             import onnxruntime as _onnxruntime
-            print("🔍 [DEBUG] Importing numpy...", file=sys.stderr, flush=True)
             import numpy as _numpy
             
-            print("🔍 [DEBUG] Core ML libraries imported successfully", file=sys.stderr, flush=True)
             # Assign to global variables
             torch = _torch
             transformers = _transformers
@@ -212,68 +191,50 @@ def check_ml_dependencies():
             
             # Try optional dependencies
             try:
-                print("🔍 [DEBUG] Importing onnx...", file=sys.stderr, flush=True)
                 import onnx as _onnx
                 onnx = _onnx
-                print("🔍 [DEBUG] onnx imported successfully", file=sys.stderr, flush=True)
             except ImportError as e:
-                print(f"🔍 [DEBUG] onnx not available: {e}", file=sys.stderr, flush=True)
                 onnx = None
                 
             try:
-                print("🔍 [DEBUG] Importing optimum...", file=sys.stderr, flush=True)
                 import optimum as _optimum
                 optimum = _optimum
-                print("🔍 [DEBUG] Importing ORTModelForCausalLM...", file=sys.stderr, flush=True)
                 # Import ONNX Runtime specific modules
                 from optimum.onnxruntime import ORTModelForCausalLM as _ORTModelForCausalLM
                 ORTModelForCausalLM = _ORTModelForCausalLM
-                print("🔍 [DEBUG] optimum imported successfully", file=sys.stderr, flush=True)
             except ImportError as e:
-                print(f"🔍 [DEBUG] optimum not available: {e}", file=sys.stderr, flush=True)
                 optimum = None
                 ORTModelForCausalLM = None
                 
             # Import quantization tools
             try:
-                print("🔍 [DEBUG] Importing quantization tools...", file=sys.stderr, flush=True)
                 from onnxruntime.quantization import quantize_dynamic as _quantize_dynamic
                 from onnxruntime.quantization import QuantType as _QuantType
                 quantize_dynamic = _quantize_dynamic
                 QuantType = _QuantType
-                print("🔍 [DEBUG] Basic quantization tools imported", file=sys.stderr, flush=True)
                 
                 # Try to import optional quantization features
                 try:
-                    print("🔍 [DEBUG] Importing advanced quantization tools...", file=sys.stderr, flush=True)
                     from onnxruntime.quantization import quantize_static as _quantize_static
                     quantize_static = _quantize_static
-                    print("🔍 [DEBUG] quantize_static imported", file=sys.stderr, flush=True)
                 except (ImportError, AttributeError) as e:
-                    print(f"🔍 [DEBUG] quantize_static not available: {e}", file=sys.stderr, flush=True)
                     quantize_static = None
                 
                 # QuantFormat might not exist in all versions
                 try:
                     from onnxruntime.quantization import QuantFormat as _QuantFormat
                     QuantFormat = _QuantFormat
-                    print("🔍 [DEBUG] QuantFormat imported", file=sys.stderr, flush=True)
                 except (ImportError, AttributeError) as e:
-                    print(f"🔍 [DEBUG] QuantFormat not available: {e}", file=sys.stderr, flush=True)
                     QuantFormat = None
                 
                 # CalibrationDataReader might not exist in all versions
                 try:
                     from onnxruntime.quantization import CalibrationDataReader as _CalibrationDataReader
                     CalibrationDataReader = _CalibrationDataReader
-                    print("🔍 [DEBUG] CalibrationDataReader imported", file=sys.stderr, flush=True)
                 except (ImportError, AttributeError) as e:
-                    print(f"🔍 [DEBUG] CalibrationDataReader not available: {e}", file=sys.stderr, flush=True)
                     CalibrationDataReader = None
                 
-                print("🔍 [DEBUG] Quantization tools setup complete", file=sys.stderr, flush=True)
             except ImportError as e:
-                print(f"🔍 [DEBUG] Quantization tools not available: {e}", file=sys.stderr, flush=True)
                 quantize_dynamic = None
                 quantize_static = None
                 QuantType = None
@@ -301,20 +262,15 @@ def check_ml_dependencies():
 
 class ModelTrainer:
     def __init__(self):
-        print("🔍 [DEBUG] ModelTrainer.__init__() started", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] Creating Tk root window...", file=sys.stderr, flush=True)
         self.root = tk.Tk()
-        print("🔍 [DEBUG] Tk root created", file=sys.stderr, flush=True)
         
-        self.root.title("ONNX Model Trainer v0.8")
+        self.root.title("ONNX Model Trainer v0.9")
         self.root.geometry("1400x900")
         self.root.minsize(1200, 900)
-        print("🔍 [DEBUG] Window configured", file=sys.stderr, flush=True)
         
         # Set project root to the directory containing this trainer.py file
         self.project_root = os.path.dirname(os.path.abspath(__file__))
-        print(f"🔍 [DEBUG] Project root: {self.project_root}", file=sys.stderr, flush=True)
         
         # System status
         self.system_ready = False
@@ -322,11 +278,9 @@ class ModelTrainer:
         self.system_check_running = False
         self.system_check_cancelled = False
         self.system_check_thread = None
-        print("🔍 [DEBUG] System status variables initialized", file=sys.stderr, flush=True)
         
         # Add proper window closing protocol
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        print("🔍 [DEBUG] Window close protocol set", file=sys.stderr, flush=True)
         
         # Initialize variables
         self.training_thread = None
@@ -374,7 +328,7 @@ class ModelTrainer:
         self.gguf_auto_fix_eos = tk.BooleanVar(value=True)  # Auto-fix EOS token for chat models
         
         # Testing tab model format selection
-        self.test_model_format = tk.StringVar(value="ONNX")  # Default for testing
+        self.test_model_format = tk.StringVar(value="GGUF")  # Default for testing
         
         # Training mode options
         self.enable_training = tk.BooleanVar(value=True)  # Training is enabled by default
@@ -799,14 +753,9 @@ class ModelTrainer:
             }
         }
         
-        print("🔍 [DEBUG] Calling setup_ui()...", file=sys.stderr, flush=True)
         self.setup_ui()
-        print("🔍 [DEBUG] setup_ui() completed", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] Calling start_system_check()...", file=sys.stderr, flush=True)
         self.start_system_check()
-        print("🔍 [DEBUG] start_system_check() completed", file=sys.stderr, flush=True)
-        print("🔍 [DEBUG] ModelTrainer.__init__() completed", file=sys.stderr, flush=True)
         
     def convert_to_relative_path(self, path):
         """Convert absolute path to relative path if within project directory"""
@@ -840,87 +789,56 @@ class ModelTrainer:
     
     def setup_ui(self):
         """Set up the main user interface with tabbed layout"""
-        print("🔍 [DEBUG] setup_ui() started", file=sys.stderr, flush=True)
         
         # Control buttons at the bottom with fixed height (create first to reserve space)
-        print("🔍 [DEBUG] Creating control buttons...", file=sys.stderr, flush=True)
         self.setup_control_buttons()
-        print("🔍 [DEBUG] Control buttons created", file=sys.stderr, flush=True)
         
         # Create main notebook (tabbed interface) that fills remaining space
-        print("🔍 [DEBUG] Creating main notebook...", file=sys.stderr, flush=True)
         self.main_notebook = ttk.Notebook(self.root)
         self.main_notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
-        print("🔍 [DEBUG] Main notebook created", file=sys.stderr, flush=True)
         
         # Bind tab change event
-        print("🔍 [DEBUG] Binding tab change event...", file=sys.stderr, flush=True)
         self.main_notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-        print("🔍 [DEBUG] Tab change event bound", file=sys.stderr, flush=True)
         
         # Tab 1: Training
-        print("🔍 [DEBUG] Setting up training tab...", file=sys.stderr, flush=True)
         self.setup_training_tab()
-        print("🔍 [DEBUG] Training tab setup complete", file=sys.stderr, flush=True)
         
         # Tab 2: Model Testing
-        print("🔍 [DEBUG] Setting up testing tab...", file=sys.stderr, flush=True)
         self.setup_testing_tab()
-        print("🔍 [DEBUG] Testing tab setup complete", file=sys.stderr, flush=True)
         
         # Initialize preset description
-        print("🔍 [DEBUG] Initializing preset...", file=sys.stderr, flush=True)
         self.on_preset_changed()
-        print("🔍 [DEBUG] Preset initialized", file=sys.stderr, flush=True)
         
         # Sync action checkboxes with their corresponding variables
-        print("🔍 [DEBUG] Syncing action variables...", file=sys.stderr, flush=True)
         self.sync_action_variables()
-        print("🔍 [DEBUG] Action variables synced", file=sys.stderr, flush=True)
         
         # Initially disable all controls until system check passes
-        print("🔍 [DEBUG] Disabling all controls...", file=sys.stderr, flush=True)
         self.disable_all_controls()
-        print("🔍 [DEBUG] setup_ui() completed", file=sys.stderr, flush=True)
         
     def setup_training_tab(self):
         """Set up the training tab with settings on left and logs on right"""
-        print("🔍 [DEBUG] setup_training_tab() started", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] Creating training_tab frame...", file=sys.stderr, flush=True)
         training_tab = ttk.Frame(self.main_notebook)
         self.main_notebook.add(training_tab, text="Training & Export")
-        print("🔍 [DEBUG] training_tab created and added to notebook", file=sys.stderr, flush=True)
         
         # Create left-right split in the training tab
-        print("🔍 [DEBUG] Creating training_paned...", file=sys.stderr, flush=True)
         training_paned = ttk.PanedWindow(training_tab, orient='horizontal')
         training_paned.pack(fill='both', expand=True)
-        print("🔍 [DEBUG] training_paned created", file=sys.stderr, flush=True)
         
         # Left panel for training settings
-        print("🔍 [DEBUG] Creating training_left_frame...", file=sys.stderr, flush=True)
         training_left_frame = ttk.Frame(training_paned)
         training_paned.add(training_left_frame, weight=1)
-        print("🔍 [DEBUG] training_left_frame created", file=sys.stderr, flush=True)
         
         # Right panel for training logs
-        print("🔍 [DEBUG] Creating training_right_frame...", file=sys.stderr, flush=True)
         training_right_frame = ttk.Frame(training_paned)
         training_paned.add(training_right_frame, weight=2)
-        print("🔍 [DEBUG] training_right_frame created", file=sys.stderr, flush=True)
         
         # Set up training settings on the left
-        print("🔍 [DEBUG] Calling setup_training_settings()...", file=sys.stderr, flush=True)
         self.setup_training_settings(training_left_frame)
-        print("🔍 [DEBUG] setup_training_settings() completed", file=sys.stderr, flush=True)
         
         # Set up training logs on the right
-        print("🔍 [DEBUG] Calling setup_training_logs()...", file=sys.stderr, flush=True)
         self.setup_training_logs(training_right_frame)
-        print("🔍 [DEBUG] setup_training_logs() completed", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] setup_training_tab() completed", file=sys.stderr, flush=True)
         
     def setup_testing_tab(self):
         """Set up the testing tab with settings on left and output on right"""
@@ -947,20 +865,14 @@ class ModelTrainer:
         
     def setup_training_settings(self, parent):
         """Set up the training settings panel"""
-        print("🔍 [DEBUG] setup_training_settings() started", file=sys.stderr, flush=True)
         
         # Model Configuration
-        print("🔍 [DEBUG] Creating model_frame LabelFrame...", file=sys.stderr, flush=True)
         model_frame = ttk.LabelFrame(parent, text="Model Configuration")
         model_frame.pack(fill='x', pady=(0, 10))
-        print("🔍 [DEBUG] model_frame created", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] Creating Base Model label and combobox...", file=sys.stderr, flush=True)
         ttk.Label(model_frame, text="Base Model:").grid(row=0, column=0, sticky='w', padx=5, pady=5)
         self.model_combo = ttk.Combobox(model_frame, textvariable=self.model_name, width=35, state='disabled')
-        print("🔍 [DEBUG] Getting model_info_db keys...", file=sys.stderr, flush=True)
         self.model_combo['values'] = list(self.model_info_db.keys())
-        print("🔍 [DEBUG] model_combo values set", file=sys.stderr, flush=True)
         self.model_combo.grid(row=0, column=1, sticky='ew', padx=5, pady=5)
         self.model_combo.bind('<<ComboboxSelected>>', self.on_model_changed)
         
@@ -1459,67 +1371,43 @@ class ModelTrainer:
         
     def setup_control_buttons(self):
         """Set up main control buttons at the bottom with minimal size"""
-        print("🔍 [DEBUG] setup_control_buttons() started", file=sys.stderr, flush=True)
         
         # Create control frame with minimal height at the bottom
-        print("🔍 [DEBUG] Creating control_frame...", file=sys.stderr, flush=True)
         control_frame = ttk.Frame(self.root, height=80)
         control_frame.pack(side='bottom', fill='x', padx=10, pady=5)
         control_frame.pack_propagate(False)  # Prevent frame from shrinking
-        print("🔍 [DEBUG] control_frame created", file=sys.stderr, flush=True)
         
         # Status label
-        print("🔍 [DEBUG] Creating status_label...", file=sys.stderr, flush=True)
         self.status_label = ttk.Label(control_frame, text="Performing system check...")
-        print("🔍 [DEBUG] status_label created", file=sys.stderr, flush=True)
         self.status_label.pack(pady=(5, 3))
-        print("🔍 [DEBUG] status_label packed", file=sys.stderr, flush=True)
         
         # Buttons frame
-        print("🔍 [DEBUG] Creating buttons_frame...", file=sys.stderr, flush=True)
         self.buttons_frame = ttk.Frame(control_frame)
         self.buttons_frame.pack(pady=3)
-        print("🔍 [DEBUG] buttons_frame created", file=sys.stderr, flush=True)
         
         # Training buttons
-        print("🔍 [DEBUG] Creating training_buttons_frame...", file=sys.stderr, flush=True)
         self.training_buttons_frame = ttk.Frame(self.buttons_frame)
-        print("🔍 [DEBUG] training_buttons_frame created", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] Creating train_button...", file=sys.stderr, flush=True)
         self.train_button = ttk.Button(self.training_buttons_frame, text="Start Training", command=self.start_training, state='disabled')
         self.train_button.pack(side='left', padx=5)
-        print("🔍 [DEBUG] train_button created", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] Creating stop_button...", file=sys.stderr, flush=True)
         self.stop_button = ttk.Button(self.training_buttons_frame, text="Stop", command=self.stop_training, state='disabled')
         self.stop_button.pack(side='left', padx=5)
-        print("🔍 [DEBUG] stop_button created", file=sys.stderr, flush=True)
         
         # Testing buttons
-        print("🔍 [DEBUG] Creating testing_buttons_frame...", file=sys.stderr, flush=True)
         self.testing_buttons_frame = ttk.Frame(self.buttons_frame)
-        print("🔍 [DEBUG] testing_buttons_frame created", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] Creating generate_button...", file=sys.stderr, flush=True)
         self.generate_button = ttk.Button(self.testing_buttons_frame, text="Generate Text", command=self.generate_text, state='disabled')
         self.generate_button.pack(side='left', padx=5)
-        print("🔍 [DEBUG] generate_button created", file=sys.stderr, flush=True)
         
-        print("🔍 [DEBUG] Creating stop_generation_button...", file=sys.stderr, flush=True)
         self.stop_generation_button = ttk.Button(self.testing_buttons_frame, text="Stop Generation", command=self.stop_generation, state='disabled')
         self.stop_generation_button.pack(side='left', padx=5)
-        print("🔍 [DEBUG] stop_generation_button created", file=sys.stderr, flush=True)
         
         # Show training buttons by default
-        print("🔍 [DEBUG] Packing training_buttons_frame...", file=sys.stderr, flush=True)
         self.training_buttons_frame.pack()
-        print("🔍 [DEBUG] training_buttons_frame packed", file=sys.stderr, flush=True)
         
         # Initialize the default mode (chat_conversation)
-        print("🔍 [DEBUG] Calling on_mode_changed()...", file=sys.stderr, flush=True)
         self.on_mode_changed(None)
-        print("🔍 [DEBUG] setup_control_buttons() completed", file=sys.stderr, flush=True)
         
     def on_tab_changed(self, event):
         """Handle tab change to show/hide appropriate buttons"""
@@ -1552,7 +1440,6 @@ class ModelTrainer:
         """Handle communication mode change"""
         # Safety check - don't run if widgets aren't created yet
         if not hasattr(self, 'test_output'):
-            print("🔍 [DEBUG] on_mode_changed called before widgets created, skipping", file=sys.stderr, flush=True)
             return
             
         mode = self.communication_mode.get()
@@ -2051,8 +1938,10 @@ class ModelTrainer:
                 train_button_state = 'normal' if dataset_selected else 'disabled'
                 self.train_button.config(state=train_button_state)
             else:
-                # For export mode, always enable the button
-                self.train_button.config(state='normal')
+                # For export mode, only enable if at least one action is selected (Export or Quantize)
+                any_action_selected = self.action_export.get() or self.action_quantize.get()
+                train_button_state = 'normal' if any_action_selected else 'disabled'
+                self.train_button.config(state=train_button_state)
     
             
     def start_system_check(self):
@@ -2456,6 +2345,7 @@ class ModelTrainer:
     def on_export_format_changed(self, event=None):
         """Handle export format change between GGUF and ONNX"""
         self.update_export_format_ui()
+        self.update_action_controls_state()  # Update opset state based on format
         if self.system_ready:
             self.root.after(100, self.update_model_info)
     
@@ -2633,23 +2523,52 @@ class ModelTrainer:
         """Handle export/quantize action checkbox changes"""
         if self.system_ready:
             self.update_action_controls_state()
+            self.update_training_controls_state()  # Update button state based on actions
             self.update_model_info()
     
     def update_action_controls_state(self):
         """Update action-related controls based on action selections"""
-        # Enable/disable ONNX Opset spinner based on export action
         export_enabled = self.action_export.get()
-        opset_state = 'normal' if export_enabled else 'disabled'
+        
+        # Enable/disable export format combo based on export action
+        export_state = 'readonly' if export_enabled else 'disabled'
+        if hasattr(self, 'export_format_combo'):
+            self.export_format_combo.config(state=export_state)
+        
+        # Enable/disable ONNX Opset spinner based on export action AND ONNX format selected
+        is_onnx_format = self.export_model_format.get() == "ONNX"
+        opset_state = 'normal' if (export_enabled and is_onnx_format) else 'disabled'
         if hasattr(self, 'opset_spin'):
             self.opset_spin.config(state=opset_state)
         
         # Enable/disable Quantize action based on export action
-        quantize_state = 'normal' if export_enabled else 'disabled'
+        quantize_checkbox_state = 'normal' if export_enabled else 'disabled'
         if hasattr(self, 'quantize_checkbox'):
-            self.quantize_checkbox.config(state=quantize_state)
+            self.quantize_checkbox.config(state=quantize_checkbox_state)
             # If export is disabled, also disable quantize
             if not export_enabled:
                 self.action_quantize.set(False)
+        
+        # Enable/disable quantization parameters based on Quantize action
+        quantize_enabled = self.action_quantize.get()
+        quant_params_state = 'readonly' if quantize_enabled else 'disabled'
+        quant_check_state = 'normal' if quantize_enabled else 'disabled'
+        
+        # ONNX quantization controls
+        if hasattr(self, 'quant_format_combo'):
+            self.quant_format_combo.config(state=quant_params_state)
+        if hasattr(self, 'quant_method_combo'):
+            self.quant_method_combo.config(state=quant_params_state)
+        if hasattr(self, 'quant_per_channel_check'):
+            self.quant_per_channel_check.config(state=quant_check_state)
+        if hasattr(self, 'quant_reduce_range_check'):
+            self.quant_reduce_range_check.config(state=quant_check_state)
+        
+        # GGUF quantization controls
+        if hasattr(self, 'gguf_quant_combo'):
+            self.gguf_quant_combo.config(state=quant_params_state)
+        if hasattr(self, 'gguf_auto_fix_check'):
+            self.gguf_auto_fix_check.config(state=quant_check_state)
     
     def sync_action_variables(self):
         """Sync action checkboxes with their corresponding variables"""
@@ -7757,23 +7676,15 @@ Choose based on your hardware and model size."""
                 
     def run(self):
         """Start the application"""
-        print("🔍 [DEBUG] ModelTrainer.run() started", file=sys.stderr, flush=True)
-        self.log_message("🚀 ONNX Model Trainer v0.8 started")
+        self.log_message("🚀 ONNX Model Trainer v0.9 started")
         self.log_message("⏳ Running system checks before enabling controls...")
-        print("🔍 [DEBUG] Starting mainloop()...", file=sys.stderr, flush=True)
         self.root.mainloop()
-        print("🔍 [DEBUG] mainloop() exited", file=sys.stderr, flush=True)
 
 def main():
     """Main entry point"""
-    print("🔍 [DEBUG] main() function started", file=sys.stderr, flush=True)
     try:
-        print("🔍 [DEBUG] Creating ModelTrainer instance...", file=sys.stderr, flush=True)
         app = ModelTrainer()
-        print("🔍 [DEBUG] ModelTrainer instance created", file=sys.stderr, flush=True)
-        print("🔍 [DEBUG] Calling app.run()...", file=sys.stderr, flush=True)
         app.run()
-        print("🔍 [DEBUG] app.run() completed", file=sys.stderr, flush=True)
     except KeyboardInterrupt:
         print("\n👋 Application interrupted by user", file=sys.stderr, flush=True)
     except Exception as e:
@@ -7783,6 +7694,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    print("🔍 [DEBUG] Script started as __main__", file=sys.stderr, flush=True)
     main()
-    print("🔍 [DEBUG] main() returned normally", file=sys.stderr, flush=True)
