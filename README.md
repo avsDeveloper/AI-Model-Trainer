@@ -14,6 +14,9 @@ This tool provides an **end-to-end workflow**: select a model, train it on your 
 - **Git** (for cloning llama.cpp)
 
 ### Step 1: Clone the Repository
+A comprehensive GUI application for training, exporting, and testing transformer language models with full ONNX optimization support. Features timestamped session management, enhanced system monitoring, and interactive model testing capabilities.
+<img width="1401" height="931" alt="Screenshot from 2025-12-15 15-26-41" src="https://github.com/user-attachments/assets/dafcee13-4a70-4e12-981e-e2471932d875" />
+<img width="1400" height="932" alt="Screenshot from 2025-12-15 15-27-05" src="https://github.com/user-attachments/assets/72d88016-0b42-40e2-bb47-0220ed0958b9" />
 
 ```bash
 git clone https://github.com/avsDeveloper/ONNX-Model-Trainer.git
