@@ -4712,11 +4712,12 @@ Choose based on your hardware and model size."""
             
             # Remove redundant tokenizer files (keep only tokenizer.json and config.json)
             # These files are redundant because tokenizer.json contains all the information
+            # NOTE: Keep tokenizer_config.json as it's needed for GGUF conversion (chat_template, etc.)
             redundant_tokenizer_files = [
                 "merges.txt",           # Merges are in tokenizer.json
                 "vocab.json",           # Vocabulary is in tokenizer.json  
                 "special_tokens_map.json",  # Special tokens are in tokenizer.json
-                "tokenizer_config.json",    # Training-time config, not needed for inference
+                # "tokenizer_config.json",  # KEEP: needed for GGUF conversion (chat_template)
                 "added_tokens.json",        # Added tokens are in tokenizer.json
                 "sentencepiece.bpe.model"  # For SentencePiece models (if any)
             ]
@@ -5422,6 +5423,23 @@ Choose based on your hardware and model size."""
             else:
                 self.log_message(f"🔄 Converting trained model to GGUF: {source_dir}")
                 conversion_source = str(source_dir)
+                
+                # For trained models, ensure we have complete tokenizer files
+                # The training process might have removed some files needed for GGUF conversion
+                self.log_message("🔍 Checking tokenizer files for trained model...")
+                tokenizer_config_path = os.path.join(conversion_source, "tokenizer_config.json")
+                
+                if not os.path.exists(tokenizer_config_path):
+                    # Try to get tokenizer_config from the original model
+                    model_name = self.model_name.get()
+                    self.log_message(f"📥 Fetching tokenizer_config from original model: {model_name}")
+                    try:
+                        original_tokenizer = AutoTokenizer.from_pretrained(model_name)
+                        # Save just the tokenizer config
+                        original_tokenizer.save_pretrained(conversion_source)
+                        self.log_message("✅ Tokenizer files restored from original model")
+                    except Exception as e:
+                        self.log_message(f"⚠️ Could not restore tokenizer files: {e}")
             
             # Auto-fix EOS token if enabled
             if self.gguf_auto_fix_eos.get():
@@ -6125,6 +6143,33 @@ Choose based on your hardware and model size."""
                 self.test_output.see(tk.END)
         self.root.after(0, _update)
     
+    def _detect_gguf_model_type(self, model_dir):
+        """Detect model type from config.json or model path for GGUF chat template selection"""
+        model_type = None
+        
+        # Try to read config.json
+        config_path = os.path.join(model_dir, "config.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    model_type = config.get("model_type", "").lower()
+                    if model_type:
+                        self.tech_log(f"📄 Found model_type in config.json: {model_type}")
+            except Exception as e:
+                self.tech_log(f"⚠️ Could not read config.json: {e}")
+        
+        # Fallback: try to detect from model path
+        if not model_type:
+            model_dir_lower = model_dir.lower()
+            for arch in ["qwen2", "qwen", "llama", "mistral", "gemma", "phi", "falcon", "yi", "deepseek"]:
+                if arch in model_dir_lower:
+                    model_type = arch
+                    self.tech_log(f"📁 Detected model type from path: {model_type}")
+                    break
+        
+        return model_type
+    
     def _start_generation(self, prompt, mode):
         """Helper method to start generation for different modes"""
         # Disable generate button and enable stop button
@@ -6173,6 +6218,13 @@ Choose based on your hardware and model size."""
                 self.update_output_safe(f"❌ Error: GGUF model not found at {resolved_model_path}\n")
                 return
             
+            # Get the model directory (for tokenizer config)
+            model_dir = os.path.dirname(resolved_model_path)
+            
+            # Try to detect model type from config.json in the model directory
+            model_type = self._detect_gguf_model_type(model_dir)
+            self.tech_log(f"🔍 Detected model type: {model_type or 'unknown'}")
+            
             # Build llama-cli command
             max_tokens = self.test_max_length.get()
             temperature = self.test_temperature.get()
@@ -6180,39 +6232,49 @@ Choose based on your hardware and model size."""
             top_k = self.test_top_k.get()
             repetition_penalty = self.test_repetition_penalty.get()
             
-            # Construct the command
+            # Extract just the user message from the prompt (remove "User:" prefix if present)
+            user_message = prompt
+            if "User:" in prompt:
+                # Get the last user message
+                parts = prompt.split("User:")
+                user_message = parts[-1].split("AI:")[0].strip()
+            
+            # Construct the command - use single-turn mode with proper chat template
             cmd = [
                 GGUF_MAIN_BIN,
                 "-m", resolved_model_path,
-                "-p", prompt,
+                "-p", user_message,  # Just the user message, llama-cli will format it
                 "-n", str(max_tokens),
                 "--temp", str(temperature),
                 "--top-p", str(top_p),
                 "--top-k", str(top_k),
                 "--repeat-penalty", str(repetition_penalty),
-                "--no-display-prompt",  # Don't repeat the prompt in output
+                "--single-turn",      # Single turn conversation mode
+                "-c", "2048",         # Context size
             ]
             
-            # Add stop sequences for chat - these tell the model when to stop generating
-            # Common patterns that indicate end of AI response
-            stop_sequences = [
-                "User:",      # Chat format
-                "Human:",     # Alternative chat format
-                "\nQ:",       # Q&A format
-                "<|endoftext|>",  # GPT-2 style
-                "<|im_end|>",     # ChatML style
-                "<|eot_id|>",     # Llama 3 style
-                "</s>",           # Common EOS
-                "\n\n\n",         # Multiple newlines often indicate end
-            ]
+            # Add chat template based on detected model type
+            if model_type == "qwen" or model_type == "qwen2":
+                cmd.extend(["--chat-template", "chatml"])
+                self.tech_log("📝 Using ChatML template for Qwen")
+            elif model_type == "llama":
+                cmd.extend(["--chat-template", "llama3"])
+                self.tech_log("📝 Using Llama3 template")
+            elif model_type == "mistral":
+                cmd.extend(["--chat-template", "mistral"])
+                self.tech_log("📝 Using Mistral template")
+            elif model_type == "gemma":
+                cmd.extend(["--chat-template", "gemma"])
+                self.tech_log("📝 Using Gemma template")
+            elif model_type == "phi":
+                cmd.extend(["--chat-template", "phi3"])
+                self.tech_log("📝 Using Phi3 template")
+            else:
+                # Default: let llama.cpp auto-detect from model metadata
+                self.tech_log("📝 Using auto-detected chat template")
             
-            for stop in stop_sequences:
-                cmd.extend(["-r", stop])  # -r is reverse prompt / stop sequence
-            
-            # Add context size
-            cmd.extend(["-c", "2048"])  # Default context size
-            
-            self.tech_log(f"🔧 Running: {' '.join(cmd[:5])}...")  # Log first few args
+            self.tech_log(f"🔧 Full command:")
+            self.tech_log(f"   {' '.join(cmd)}")
             self.tech_log(f"⚙️ Params: max_tokens={max_tokens}, temp={temperature}, top_p={top_p}")
             
             # Set up environment
@@ -6240,8 +6302,29 @@ Choose based on your hardware and model size."""
                 # Store process for potential stop functionality
                 self.gguf_process = process
                 
-                # Read output in real-time character by character for streaming effect
+                # Read output - filter llama.cpp UI elements
                 output_text = ""
+                empty_line_count = 0
+                max_empty_lines = 5  # Stop after 5 consecutive empty outputs
+                line_count = 0
+                capturing_response = False
+                
+                self.tech_log("📤 Raw output from llama-cli:")
+                
+                # Patterns to skip (llama.cpp UI elements)
+                skip_patterns = [
+                    "Loading model",
+                    "▄▄", "██", "▀▀",  # ASCII art
+                    "build      :",
+                    "model      :",
+                    "modalities :",
+                    "available commands:",
+                    "/exit", "/regen", "/clear", "/read",
+                    "Exiting...",
+                    "llama_memory",
+                    "[ Prompt:",
+                    "> ",  # Input prompt indicator
+                ]
                 
                 # Read stdout line by line
                 while True:
@@ -6249,8 +6332,53 @@ Choose based on your hardware and model size."""
                     if not line and process.poll() is not None:
                         break
                     if line:
-                        output_text += line
-                        self.update_output_safe(line)
+                        line_count += 1
+                        stripped = line.rstrip('\n\r')
+                        
+                        # Log raw output for debugging
+                        self.tech_log(f"   Line {line_count}: {repr(line)[:80]}")
+                        
+                        # Skip llama.cpp UI elements
+                        should_skip = False
+                        for pattern in skip_patterns:
+                            if pattern in stripped:
+                                should_skip = True
+                                break
+                        
+                        # Also skip empty lines that are part of the UI
+                        if not stripped and not capturing_response:
+                            should_skip = True
+                        
+                        # Start capturing after we see the prompt echo
+                        if stripped.startswith("> ") or (stripped and not should_skip and not capturing_response):
+                            # Check if this line contains user's prompt (echo)
+                            if stripped.startswith("> "):
+                                capturing_response = True
+                                continue  # Skip the prompt echo itself
+                            elif capturing_response == False:
+                                # First non-UI line - start capturing
+                                capturing_response = True
+                        
+                        if should_skip:
+                            continue
+                        
+                        # Now we're capturing actual response
+                        if capturing_response:
+                            if stripped:
+                                output_text += stripped + "\n"
+                                self.update_output_safe(stripped + "\n")
+                                empty_line_count = 0
+                            else:
+                                empty_line_count += 1
+                                if empty_line_count <= 2:
+                                    output_text += "\n"
+                                    self.update_output_safe("\n")
+                                elif empty_line_count > max_empty_lines:
+                                    self.tech_log(f"⚠️ Detected {empty_line_count} consecutive empty lines, stopping")
+                                    process.terminate()
+                                    break
+                
+                self.tech_log(f"📊 Total lines received: {line_count}")
                 
                 # Also capture any remaining output
                 remaining_stdout, stderr = process.communicate()
