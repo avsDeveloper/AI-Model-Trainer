@@ -130,11 +130,19 @@ CHAT_MODEL_CONFIGS = {
 }
 
 # Models known to support GGUF conversion (architecture patterns)
-# These are model architectures that llama.cpp supports
+# These are model architectures that llama.cpp supports AND work well for chat/inference
+# Base models like gpt2, gpt-neo are excluded as they don't have proper chat capabilities
 GGUF_SUPPORTED_ARCHITECTURES = [
     "llama", "mistral", "qwen", "qwen2", "phi", "phi3", "gemma", "gemma2",
-    "gpt2", "gpt-neo", "gpt-j", "opt", "bloom", "falcon", "mpt", "starcoder",
-    "stablelm", "baichuan", "internlm", "yi", "deepseek", "codellama", "tinyllama"
+    "falcon", "stablelm", "baichuan", "internlm", "yi", "deepseek", 
+    "codellama", "tinyllama", "vicuna", "alpaca", "wizardlm", "openchat",
+    "zephyr", "neural-chat", "starling", "dolphin", "orca"
+]
+
+# Models that are explicitly NOT recommended for GGUF (base models without chat training)
+GGUF_INCOMPATIBLE_MODELS = [
+    "gpt2", "distilgpt2", "gpt-neo", "gpt-j", "opt", "bloom", "mpt", 
+    "starcoder", "codegen", "pythia", "cerebras", "EleutherAI"
 ]
 
 print("🔍 [DEBUG] GGUF configuration initialized", file=sys.stderr, flush=True)
@@ -1817,7 +1825,7 @@ class ModelTrainer:
         """Start generation from terminal input - using simple script approach"""
         model_path = self.model_path_var.get()
         if not model_path:
-            self.test_output.insert(tk.END, "❌ Error: Please select an ONNX model first\n\n")
+            self.test_output.insert(tk.END, "❌ Error: Please select a model first\n\n")
             self.add_terminal_prompt(self.get_mode_prefix(mode))
             return
         
@@ -1882,8 +1890,15 @@ class ModelTrainer:
     def run_terminal_generation(self, model_path, prompt, mode):
         """Run text generation from terminal input"""
         try:
-            # Use the existing generation logic but update output differently
-            self.run_generation(model_path, prompt, mode + "_terminal")
+            # Check the model format and use appropriate generation method
+            selected_format = self.test_model_format.get()
+            
+            if selected_format == "GGUF":
+                # Use GGUF generation
+                self.run_gguf_generation(model_path, prompt, mode + "_terminal")
+            else:
+                # Use ONNX generation (default)
+                self.run_generation(model_path, prompt, mode + "_terminal")
         except Exception as e:
             self.root.after(0, lambda: self.remove_thinking_indicator())
             self.root.after(0, lambda: self.test_output.insert(tk.END, f"❌ Error: {str(e)}\n\n"))
@@ -2501,25 +2516,43 @@ class ModelTrainer:
         # Check GGUF support based on model architecture
         model_lower = model_name.lower()
         gguf_supported = False
+        gguf_incompatible = False
         
-        for arch in GGUF_SUPPORTED_ARCHITECTURES:
-            if arch in model_lower:
-                gguf_supported = True
+        # First check if model is explicitly incompatible (base models)
+        for incompatible in GGUF_INCOMPATIBLE_MODELS:
+            if incompatible.lower() in model_lower:
+                gguf_incompatible = True
                 break
         
-        # Also check model_info_db for architecture hints
-        if model_name in self.model_info_db:
-            model_info = self.model_info_db[model_name]
-            arch = model_info.get('architecture', '').lower()
-            for supported_arch in GGUF_SUPPORTED_ARCHITECTURES:
-                if supported_arch in arch:
+        # Then check if model architecture is supported
+        if not gguf_incompatible:
+            for arch in GGUF_SUPPORTED_ARCHITECTURES:
+                if arch in model_lower:
                     gguf_supported = True
                     break
+        
+        # Also check model_info_db for architecture hints
+        if not gguf_incompatible and model_name in self.model_info_db:
+            model_info = self.model_info_db[model_name]
+            arch = model_info.get('architecture', '').lower()
+            
+            # Check incompatible first
+            for incompatible in GGUF_INCOMPATIBLE_MODELS:
+                if incompatible.lower() in arch:
+                    gguf_incompatible = True
+                    break
+            
+            # Then check supported
+            if not gguf_incompatible:
+                for supported_arch in GGUF_SUPPORTED_ARCHITECTURES:
+                    if supported_arch in arch:
+                        gguf_supported = True
+                        break
         
         # Check if GGUF tools are available
         gguf_tools_available = os.path.exists(GGUF_CONVERT_SCRIPT)
         
-        if gguf_supported and gguf_tools_available:
+        if gguf_supported and gguf_tools_available and not gguf_incompatible:
             supported.append("GGUF")
         
         # ONNX is generally supported for all transformer models
@@ -2535,23 +2568,29 @@ class ModelTrainer:
         supported_formats = self.get_supported_export_formats(model_name)
         
         if not supported_formats:
-            # Fallback - assume both if we can't determine
-            supported_formats = ["GGUF", "ONNX"] if os.path.exists(GGUF_CONVERT_SCRIPT) else ["ONNX"]
+            # Fallback - ONNX only if we can't determine (safer default)
+            supported_formats = ["ONNX"]
         
         # Update dropdown values
         if hasattr(self, 'export_format_combo'):
             self.export_format_combo['values'] = supported_formats
             
-            # Set default (GGUF if available, otherwise ONNX)
+            # Set default based on what's available
             current = self.export_model_format.get()
             if current not in supported_formats:
-                if "GGUF" in supported_formats:
-                    self.export_model_format.set("GGUF")
-                elif "ONNX" in supported_formats:
-                    self.export_model_format.set("ONNX")
+                # Select the first available format
+                if supported_formats:
+                    self.export_model_format.set(supported_formats[0])
             
             # Update the UI to reflect any changes
             self.update_export_format_ui()
+            
+            # Log the available formats for this model
+            if hasattr(self, 'log_message'):
+                if len(supported_formats) == 1 and supported_formats[0] == "ONNX":
+                    self.log_message(f"ℹ️ Model '{model_name}' supports ONNX export only")
+                else:
+                    self.log_message(f"ℹ️ Model '{model_name}' supports: {', '.join(supported_formats)}")
 
     def on_test_format_changed(self, event=None):
         """Handle test model format selection change"""
@@ -6122,7 +6161,7 @@ Choose based on your hardware and model size."""
             # Check if llama-cli exists
             if not os.path.exists(GGUF_MAIN_BIN):
                 self.tech_log(f"❌ llama-cli not found at: {GGUF_MAIN_BIN}")
-                self.tech_log("💡 Build llama.cpp: cd gguf/llama.cpp && make")
+                self.tech_log("💡 Build llama.cpp: cd llama.cpp && make")
                 self.update_output_safe("❌ Error: llama-cli not found. Please build llama.cpp first.\n")
                 return
             
@@ -6154,6 +6193,22 @@ Choose based on your hardware and model size."""
                 "--no-display-prompt",  # Don't repeat the prompt in output
             ]
             
+            # Add stop sequences for chat - these tell the model when to stop generating
+            # Common patterns that indicate end of AI response
+            stop_sequences = [
+                "User:",      # Chat format
+                "Human:",     # Alternative chat format
+                "\nQ:",       # Q&A format
+                "<|endoftext|>",  # GPT-2 style
+                "<|im_end|>",     # ChatML style
+                "<|eot_id|>",     # Llama 3 style
+                "</s>",           # Common EOS
+                "\n\n\n",         # Multiple newlines often indicate end
+            ]
+            
+            for stop in stop_sequences:
+                cmd.extend(["-r", stop])  # -r is reverse prompt / stop sequence
+            
             # Add context size
             cmd.extend(["-c", "2048"])  # Default context size
             
@@ -6172,33 +6227,43 @@ Choose based on your hardware and model size."""
             start_time = time.time()
             
             try:
+                # Use subprocess.run for simpler handling, or Popen with proper streaming
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    bufsize=1,  # Line buffered
                     env=env
                 )
                 
-                # Read output in real-time
-                output_text = ""
-                for line in process.stdout:
-                    if not hasattr(self, 'generation_thread') or not self.generation_thread.is_alive():
-                        process.terminate()
-                        break
-                    
-                    # Accumulate and display output
-                    output_text += line
-                    self.update_output_safe(line)
+                # Store process for potential stop functionality
+                self.gguf_process = process
                 
-                process.wait()
+                # Read output in real-time character by character for streaming effect
+                output_text = ""
+                
+                # Read stdout line by line
+                while True:
+                    line = process.stdout.readline()
+                    if not line and process.poll() is not None:
+                        break
+                    if line:
+                        output_text += line
+                        self.update_output_safe(line)
+                
+                # Also capture any remaining output
+                remaining_stdout, stderr = process.communicate()
+                if remaining_stdout:
+                    output_text += remaining_stdout
+                    self.update_output_safe(remaining_stdout)
                 
                 elapsed = time.time() - start_time
                 
                 if process.returncode != 0:
-                    stderr = process.stderr.read()
-                    self.tech_log(f"❌ GGUF generation failed: {stderr}")
-                    self.update_output_safe(f"\n❌ Error: {stderr}\n")
+                    self.tech_log(f"❌ GGUF generation failed (code {process.returncode}): {stderr}")
+                    if stderr:
+                        self.update_output_safe(f"\n❌ Error: {stderr}\n")
                 else:
                     # Calculate stats
                     words = len(output_text.split())
@@ -6214,9 +6279,12 @@ Choose based on your hardware and model size."""
                 
         except Exception as e:
             self.tech_log(f"❌ GGUF generation error: {e}")
+            import traceback
+            self.tech_log(f"Traceback: {traceback.format_exc()}")
             self.update_output_safe(f"❌ Error: {str(e)}\n")
             
         finally:
+            self.gguf_process = None
             # Re-enable generate button
             def restore_buttons():
                 if hasattr(self, 'generate_button'):
