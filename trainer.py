@@ -2,6 +2,7 @@
 """
 ONNX Model Trainer - Streamlined GUI Application with Integrated System Checks
 Training and exporting language models with comprehensive system validation
+Supports both ONNX and GGUF model formats
 """
 
 # Enable debug logging early
@@ -17,6 +18,7 @@ import random
 import re
 import shutil
 import signal
+import subprocess
 import threading
 import time
 import traceback
@@ -84,6 +86,58 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 print("🔍 [DEBUG] Logging configured", file=sys.stderr, flush=True)
+
+# ============================================================================
+# GGUF Configuration
+# ============================================================================
+
+# GGUF-related paths (llama.cpp should be in the same directory as this script)
+LLAMA_CPP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+GGUF_CONVERT_SCRIPT = os.path.join(LLAMA_CPP_DIR, "convert_hf_to_gguf.py")
+GGUF_QUANTIZE_BIN = os.path.join(LLAMA_CPP_DIR, "build", "bin", "llama-quantize")
+GGUF_MAIN_BIN = os.path.join(LLAMA_CPP_DIR, "build", "bin", "llama-cli")
+
+# GGUF quantization options
+GGUF_QUANT_OPTIONS = ["F16", "Q4_K_M", "Q5_K_M", "Q8_0", "Q2_K", "Q3_K_M", "Q6_K"]
+
+# Known chat model token configurations for GGUF EOS token fixing
+# Format: { "architecture_pattern": { "eos_token_content": eos_token_id, ... } }
+CHAT_MODEL_CONFIGS = {
+    "qwen": {
+        "chat_tokens": ["<|im_start|>", "<|im_end|>"],
+        "eos_content": "<|im_end|>",
+    },
+    "llama": {
+        "chat_tokens": ["<|start_header_id|>", "<|end_header_id|>", "<|eot_id|>"],
+        "eos_content": "<|eot_id|>",
+    },
+    "mistral": {
+        "chat_tokens": ["[INST]", "[/INST]"],
+        "eos_content": "</s>",
+    },
+    "gemma": {
+        "chat_tokens": ["<start_of_turn>", "<end_of_turn>"],
+        "eos_content": "<end_of_turn>",
+    },
+    "phi": {
+        "chat_tokens": ["<|user|>", "<|assistant|>", "<|end|>"],
+        "eos_content": "<|end|>",
+    },
+    "chatml": {
+        "chat_tokens": ["<|im_start|>", "<|im_end|>"],
+        "eos_content": "<|im_end|>",
+    },
+}
+
+# Models known to support GGUF conversion (architecture patterns)
+# These are model architectures that llama.cpp supports
+GGUF_SUPPORTED_ARCHITECTURES = [
+    "llama", "mistral", "qwen", "qwen2", "phi", "phi3", "gemma", "gemma2",
+    "gpt2", "gpt-neo", "gpt-j", "opt", "bloom", "falcon", "mpt", "starcoder",
+    "stablelm", "baichuan", "internlm", "yi", "deepseek", "codellama", "tinyllama"
+]
+
+print("🔍 [DEBUG] GGUF configuration initialized", file=sys.stderr, flush=True)
 
 # ML dependency status
 ML_DEPENDENCIES_AVAILABLE = None
@@ -303,6 +357,16 @@ class ModelTrainer:
         self.quant_method = tk.StringVar(value="Dynamic")  # Quantization method
         self.quant_per_channel = tk.BooleanVar(value=False)  # Per-channel quantization
         self.quant_reduce_range = tk.BooleanVar(value=False)  # Reduce range for compatibility
+        
+        # Model format selection (GGUF or ONNX)
+        self.export_model_format = tk.StringVar(value="GGUF")  # Default to GGUF when supported
+        
+        # GGUF-specific settings
+        self.gguf_quant_type = tk.StringVar(value="Q4_K_M")  # Default GGUF quantization
+        self.gguf_auto_fix_eos = tk.BooleanVar(value=True)  # Auto-fix EOS token for chat models
+        
+        # Testing tab model format selection
+        self.test_model_format = tk.StringVar(value="ONNX")  # Default for testing
         
         # Training mode options
         self.enable_training = tk.BooleanVar(value=True)  # Training is enabled by default
@@ -1020,19 +1084,40 @@ class ModelTrainer:
         export_frame = ttk.LabelFrame(parent, text="Export & Quantization Parameters")
         export_frame.pack(fill='x', pady=(0, 10))
         
-        # ONNX Export settings
-        onnx_settings = ttk.Frame(export_frame)
-        onnx_settings.pack(fill='x', padx=5, pady=5)
-        ttk.Label(onnx_settings, text="ONNX Opset:").pack(side='left')
-        self.opset_spin = ttk.Spinbox(onnx_settings, from_=11, to=17, textvariable=self.opset_version, width=8, state='disabled')
+        # Model Format Selection (GGUF or ONNX)
+        format_frame = ttk.Frame(export_frame)
+        format_frame.pack(fill='x', padx=5, pady=5)
+        
+        ttk.Label(format_frame, text="Model Format:").pack(side='left')
+        self.export_format_combo = ttk.Combobox(format_frame, textvariable=self.export_model_format, width=12, state='readonly')
+        self.export_format_combo['values'] = ["GGUF", "ONNX"]  # GGUF first as default when supported
+        self.export_format_combo.pack(side='left', padx=(5, 15))
+        self.export_format_combo.bind('<<ComboboxSelected>>', self.on_export_format_changed)
+        
+        # Format description label
+        self.format_description_label = ttk.Label(format_frame, text="💡 GGUF: llama.cpp compatible, efficient inference", foreground='gray')
+        self.format_description_label.pack(side='left')
+        
+        # Container for format-specific settings (will switch between ONNX and GGUF)
+        self.format_settings_container = ttk.Frame(export_frame)
+        self.format_settings_container.pack(fill='x', padx=5, pady=5)
+        
+        # ONNX-specific settings frame
+        self.onnx_settings_frame = ttk.Frame(self.format_settings_container)
+        
+        # ONNX Opset row
+        onnx_row1 = ttk.Frame(self.onnx_settings_frame)
+        onnx_row1.pack(fill='x', pady=2)
+        ttk.Label(onnx_row1, text="ONNX Opset:").pack(side='left')
+        self.opset_spin = ttk.Spinbox(onnx_row1, from_=11, to=17, textvariable=self.opset_version, width=8, state='disabled')
         self.opset_spin.pack(side='left', padx=(5, 0))
         self.opset_spin.bind('<KeyRelease>', self.on_export_changed)
         self.opset_spin.bind('<<Increment>>', self.on_export_changed)
         self.opset_spin.bind('<<Decrement>>', self.on_export_changed)
         
-        # Quantization settings grid
-        quant_grid = ttk.Frame(export_frame)
-        quant_grid.pack(fill='x', padx=5, pady=5)
+        # ONNX Quantization settings grid
+        quant_grid = ttk.Frame(self.onnx_settings_frame)
+        quant_grid.pack(fill='x', pady=5)
         
         # Row 1 - Quantization Format
         ttk.Label(quant_grid, text="Quant Format:").grid(row=0, column=0, sticky='w', padx=5, pady=2)
@@ -1059,7 +1144,36 @@ class ModelTrainer:
                                                         command=self.on_quant_changed)
         self.quant_reduce_range_check.grid(row=1, column=2, columnspan=2, sticky='w', padx=5, pady=2)
         
-        # Quantization info label
+        # GGUF-specific settings frame
+        self.gguf_settings_frame = ttk.Frame(self.format_settings_container)
+        
+        # GGUF Quantization type
+        gguf_row1 = ttk.Frame(self.gguf_settings_frame)
+        gguf_row1.pack(fill='x', pady=2)
+        ttk.Label(gguf_row1, text="Quantization Type:").pack(side='left')
+        self.gguf_quant_combo = ttk.Combobox(gguf_row1, textvariable=self.gguf_quant_type, width=12, state='readonly')
+        self.gguf_quant_combo['values'] = GGUF_QUANT_OPTIONS
+        self.gguf_quant_combo.pack(side='left', padx=(5, 15))
+        
+        # GGUF quantization description
+        self.gguf_quant_desc = ttk.Label(gguf_row1, text="Q4_K_M: Good balance of quality and size", foreground='gray')
+        self.gguf_quant_desc.pack(side='left')
+        self.gguf_quant_combo.bind('<<ComboboxSelected>>', self.on_gguf_quant_changed)
+        
+        # GGUF Auto-fix EOS checkbox
+        gguf_row2 = ttk.Frame(self.gguf_settings_frame)
+        gguf_row2.pack(fill='x', pady=2)
+        self.gguf_auto_fix_check = ttk.Checkbutton(gguf_row2, text="Auto-fix EOS token for chat models", 
+                                                   variable=self.gguf_auto_fix_eos)
+        self.gguf_auto_fix_check.pack(side='left')
+        
+        # GGUF tools status
+        gguf_row3 = ttk.Frame(self.gguf_settings_frame)
+        gguf_row3.pack(fill='x', pady=2)
+        self.gguf_status_label = ttk.Label(gguf_row3, text="", foreground='gray')
+        self.gguf_status_label.pack(side='left')
+        
+        # Quantization info label (shared between formats)
         quant_info_frame = ttk.Frame(export_frame)
         quant_info_frame.pack(fill='x', padx=5, pady=2)
         
@@ -1067,6 +1181,9 @@ class ModelTrainer:
             text="💡 INT8 dynamic quantization provides ~50% model size reduction", 
             foreground='gray')
         self.quant_info_label.pack(side='left')
+        
+        # Initialize the format-specific UI (show GGUF by default)
+        self.update_export_format_ui()
         
         # Device Information (replaces Memory Management)
         device_frame = ttk.LabelFrame(parent, text="Hardware Information")
@@ -1128,8 +1245,22 @@ class ModelTrainer:
         """Set up the testing settings panel"""
         
         # Model selection area
-        model_select_frame = ttk.LabelFrame(parent, text="Select ONNX Model")
+        model_select_frame = ttk.LabelFrame(parent, text="Select Model")
         model_select_frame.pack(fill='x', padx=5, pady=5)
+        
+        # Model format selection row
+        format_frame = ttk.Frame(model_select_frame)
+        format_frame.pack(fill='x', padx=5, pady=5)
+        
+        ttk.Label(format_frame, text="Model Format:").pack(side='left')
+        self.test_format_combo = ttk.Combobox(format_frame, textvariable=self.test_model_format, width=10, state='readonly')
+        self.test_format_combo['values'] = ["ONNX", "GGUF"]
+        self.test_format_combo.pack(side='left', padx=(5, 10))
+        self.test_format_combo.bind('<<ComboboxSelected>>', self.on_test_format_changed)
+        
+        # Format status label
+        self.test_format_status = ttk.Label(format_frame, text="", foreground='gray')
+        self.test_format_status.pack(side='left', padx=5)
         
         # Model path selection
         path_frame = ttk.Frame(model_select_frame)
@@ -2153,6 +2284,10 @@ class ModelTrainer:
             self.update_model_info()
             self.update_cache_status_display()
             
+            # Update export format dropdown based on model support
+            if hasattr(self, 'update_format_dropdown_for_model'):
+                self.update_format_dropdown_for_model()
+            
             # Update memory usage displays in both tabs to reflect new model size
             if hasattr(self, 'update_train_memory_usage_display'):
                 self.update_train_memory_usage_display()
@@ -2277,6 +2412,169 @@ class ModelTrainer:
             # Update model size estimates
             self.root.after(100, self.update_model_info)
     
+    def on_gguf_quant_changed(self, event=None):
+        """Handle GGUF quantization type change"""
+        if self.system_ready:
+            quant_type = self.gguf_quant_type.get()
+            
+            # Update description based on selected quantization
+            descriptions = {
+                "F16": "F16: Full precision float16, largest size, best quality",
+                "Q8_0": "Q8_0: 8-bit quantization, excellent quality, ~50% size reduction",
+                "Q6_K": "Q6_K: 6-bit K-quant, very good quality, ~40% size",
+                "Q5_K_M": "Q5_K_M: 5-bit K-quant medium, good quality, ~35% size",
+                "Q4_K_M": "Q4_K_M: 4-bit K-quant medium, balanced quality/size",
+                "Q3_K_M": "Q3_K_M: 3-bit K-quant medium, smaller but lower quality",
+                "Q2_K": "Q2_K: 2-bit K-quant, smallest size, lowest quality"
+            }
+            
+            desc = descriptions.get(quant_type, "Select quantization type")
+            if hasattr(self, 'gguf_quant_desc'):
+                self.gguf_quant_desc.config(text=desc)
+            
+            # Update the shared info label
+            if hasattr(self, 'quant_info_label'):
+                self.quant_info_label.config(text=f"💡 {desc}")
+            
+            self.root.after(100, self.update_model_info)
+    
+    def on_export_format_changed(self, event=None):
+        """Handle export format change between GGUF and ONNX"""
+        self.update_export_format_ui()
+        if self.system_ready:
+            self.root.after(100, self.update_model_info)
+    
+    def update_export_format_ui(self):
+        """Update the UI to show format-specific settings"""
+        export_format = self.export_model_format.get()
+        
+        # Hide both frames first
+        self.onnx_settings_frame.pack_forget()
+        self.gguf_settings_frame.pack_forget()
+        
+        if export_format == "GGUF":
+            # Show GGUF settings
+            self.gguf_settings_frame.pack(fill='x')
+            
+            # Update format description
+            if hasattr(self, 'format_description_label'):
+                self.format_description_label.config(text="💡 GGUF: llama.cpp compatible, efficient CPU/GPU inference")
+            
+            # Check GGUF tools availability
+            self.check_gguf_tools_status()
+            
+            # Update info label for GGUF
+            self.on_gguf_quant_changed()
+        else:
+            # Show ONNX settings
+            self.onnx_settings_frame.pack(fill='x')
+            
+            # Update format description
+            if hasattr(self, 'format_description_label'):
+                self.format_description_label.config(text="💡 ONNX: Cross-platform, ONNX Runtime inference")
+            
+            # Update info label for ONNX
+            self.on_quant_changed()
+    
+    def check_gguf_tools_status(self):
+        """Check if GGUF conversion tools are available"""
+        convert_ok = os.path.exists(GGUF_CONVERT_SCRIPT)
+        quantize_ok = os.path.exists(GGUF_QUANTIZE_BIN)
+        
+        if convert_ok and quantize_ok:
+            status_text = "✅ GGUF tools ready (llama.cpp found)"
+            status_color = 'green'
+        elif convert_ok:
+            status_text = "⚠️ Conversion ready, quantize binary not built (run: cd llama.cpp && make)"
+            status_color = 'orange'
+        else:
+            status_text = "❌ GGUF tools not found - check llama.cpp installation in gguf directory"
+            status_color = 'red'
+        
+        if hasattr(self, 'gguf_status_label'):
+            self.gguf_status_label.config(text=status_text, foreground=status_color)
+    
+    def get_supported_export_formats(self, model_name):
+        """Get list of supported export formats for a given model"""
+        supported = []
+        
+        # Check GGUF support based on model architecture
+        model_lower = model_name.lower()
+        gguf_supported = False
+        
+        for arch in GGUF_SUPPORTED_ARCHITECTURES:
+            if arch in model_lower:
+                gguf_supported = True
+                break
+        
+        # Also check model_info_db for architecture hints
+        if model_name in self.model_info_db:
+            model_info = self.model_info_db[model_name]
+            arch = model_info.get('architecture', '').lower()
+            for supported_arch in GGUF_SUPPORTED_ARCHITECTURES:
+                if supported_arch in arch:
+                    gguf_supported = True
+                    break
+        
+        # Check if GGUF tools are available
+        gguf_tools_available = os.path.exists(GGUF_CONVERT_SCRIPT)
+        
+        if gguf_supported and gguf_tools_available:
+            supported.append("GGUF")
+        
+        # ONNX is generally supported for all transformer models
+        # Check if optimum/onnxruntime is available
+        if ML_DEPENDENCIES_AVAILABLE and ORTModelForCausalLM is not None:
+            supported.append("ONNX")
+        
+        return supported
+    
+    def update_format_dropdown_for_model(self):
+        """Update the export format dropdown based on selected model's supported formats"""
+        model_name = self.model_name.get()
+        supported_formats = self.get_supported_export_formats(model_name)
+        
+        if not supported_formats:
+            # Fallback - assume both if we can't determine
+            supported_formats = ["GGUF", "ONNX"] if os.path.exists(GGUF_CONVERT_SCRIPT) else ["ONNX"]
+        
+        # Update dropdown values
+        if hasattr(self, 'export_format_combo'):
+            self.export_format_combo['values'] = supported_formats
+            
+            # Set default (GGUF if available, otherwise ONNX)
+            current = self.export_model_format.get()
+            if current not in supported_formats:
+                if "GGUF" in supported_formats:
+                    self.export_model_format.set("GGUF")
+                elif "ONNX" in supported_formats:
+                    self.export_model_format.set("ONNX")
+            
+            # Update the UI to reflect any changes
+            self.update_export_format_ui()
+
+    def on_test_format_changed(self, event=None):
+        """Handle test model format selection change"""
+        selected_format = self.test_model_format.get()
+        self.tech_log(f"🔄 Model format changed to: {selected_format}")
+        
+        # Update format status label
+        if hasattr(self, 'test_format_status'):
+            if selected_format == "GGUF":
+                # Check if GGUF tools are available
+                if os.path.exists(GGUF_MAIN_BIN):
+                    self.test_format_status.config(text="✅ llama-cli available", foreground='green')
+                else:
+                    self.test_format_status.config(text="⚠️ llama-cli not found", foreground='orange')
+            else:
+                self.test_format_status.config(text="", foreground='gray')
+        
+        # Refresh model list for the new format
+        try:
+            self.refresh_model_list()
+        except Exception as e:
+            self.tech_log(f"⚠️ Error refreshing model list: {e}")
+
     def on_training_mode_changed(self, event=None):
         """Handle training mode selection change"""
         if self.system_ready:
@@ -2829,42 +3127,61 @@ class ModelTrainer:
             if self.action_export.get():
                 # Check for interruption before export
                 if not self.is_training or self.force_stop:
-                    self.log_message("⏹️ Operation stopped before ONNX export")
-                    return
-                    
-                convert_dir.mkdir(exist_ok=True)
-                if training_enabled:
-                    self.log_message("🔄 Step 2: Converting trained model to ONNX...")
-                    self.set_export_progress(0)
-                else:
-                    self.log_message("🔄 Step 1: Converting pretrained model to ONNX...")
-                    self.set_export_progress(0)
-                self.run_onnx_export(source_dir, convert_dir)
-                
-                # Check for interruption after export
-                if not self.is_training or self.force_stop:
-                    self.log_message("⏹️ Operation stopped after ONNX export")
+                    self.log_message("⏹️ Operation stopped before export")
                     return
                 
-                # Step 3: Quantization
-                if self.action_quantize.get():
-                    # Check for interruption before quantization
-                    if not self.is_training or self.force_stop:
-                        self.log_message("⏹️ Operation stopped before quantization")
-                        return
-                        
-                    quantize_dir.mkdir(exist_ok=True)
+                # Determine export format
+                export_format = self.export_model_format.get()
+                
+                if export_format == "GGUF":
+                    # GGUF Export
+                    gguf_dir = session_dir / "2_gguf"
+                    gguf_dir.mkdir(exist_ok=True)
                     if training_enabled:
-                        self.log_message("⚙️ Step 3: Quantizing ONNX model...")
+                        self.log_message("🔄 Step 2: Converting trained model to GGUF...")
                     else:
-                        self.log_message("⚙️ Step 2: Quantizing ONNX model...")
-                    self.set_quantization_progress(0)
-                    self.run_onnx_quantization(convert_dir, quantize_dir)
+                        self.log_message("🔄 Step 1: Converting pretrained model to GGUF...")
+                    self.set_export_progress(0)
+                    self.run_gguf_conversion(source_dir, gguf_dir)
                     
-                    # Check for interruption after quantization
+                    # Note: GGUF quantization happens during conversion (via gguf_quant_type)
+                    # So we don't need a separate quantization step for GGUF
+                    
+                else:
+                    # ONNX Export (default)
+                    convert_dir.mkdir(exist_ok=True)
+                    if training_enabled:
+                        self.log_message("🔄 Step 2: Converting trained model to ONNX...")
+                        self.set_export_progress(0)
+                    else:
+                        self.log_message("🔄 Step 1: Converting pretrained model to ONNX...")
+                        self.set_export_progress(0)
+                    self.run_onnx_export(source_dir, convert_dir)
+                    
+                    # Check for interruption after export
                     if not self.is_training or self.force_stop:
-                        self.log_message("⏹️ Operation stopped after quantization")
+                        self.log_message("⏹️ Operation stopped after ONNX export")
                         return
+                    
+                    # Step 3: Quantization (ONNX only)
+                    if self.action_quantize.get():
+                        # Check for interruption before quantization
+                        if not self.is_training or self.force_stop:
+                            self.log_message("⏹️ Operation stopped before quantization")
+                            return
+                            
+                        quantize_dir.mkdir(exist_ok=True)
+                        if training_enabled:
+                            self.log_message("⚙️ Step 3: Quantizing ONNX model...")
+                        else:
+                            self.log_message("⚙️ Step 2: Quantizing ONNX model...")
+                        self.set_quantization_progress(0)
+                        self.run_onnx_quantization(convert_dir, quantize_dir)
+                        
+                        # Check for interruption after quantization
+                        if not self.is_training or self.force_stop:
+                            self.log_message("⏹️ Operation stopped after quantization")
+                            return
                     
             if self.is_training:
                 if training_enabled:
@@ -4798,6 +5115,391 @@ Choose based on your hardware and model size."""
         except Exception as e:
             self.log_message(f"⚠ Warning: Could not test quantized model: {e}")
             self.log_message("  Model files created, but manual testing recommended")
+    
+    # ============================================================================
+    # GGUF Conversion Methods
+    # ============================================================================
+    
+    def detect_gguf_model_type(self, config):
+        """Detect model type from config for GGUF EOS token fixing."""
+        model_type = config.get("model_type", "").lower()
+        architectures = config.get("architectures", [])
+        arch_str = " ".join(architectures).lower() if architectures else ""
+        
+        for key in CHAT_MODEL_CONFIGS.keys():
+            if key in model_type or key in arch_str:
+                return key
+        return None
+
+    def get_gguf_added_tokens(self, folder):
+        """Parse tokenizer.json to get added tokens mapping for GGUF."""
+        tokenizer_path = os.path.join(folder, "tokenizer.json")
+        tokens_map = {}
+        
+        if os.path.exists(tokenizer_path):
+            try:
+                with open(tokenizer_path, 'r', encoding='utf-8') as f:
+                    tokenizer_data = json.load(f)
+                    added_tokens = tokenizer_data.get("added_tokens", [])
+                    for token in added_tokens:
+                        content = token.get("content", "")
+                        token_id = token.get("id")
+                        if content and token_id is not None:
+                            tokens_map[content] = token_id
+            except Exception as e:
+                self.log_message(f"⚠️ Warning: Could not parse tokenizer.json: {e}")
+        
+        # Also check tokenizer_config.json for additional token info
+        tokenizer_config_path = os.path.join(folder, "tokenizer_config.json")
+        if os.path.exists(tokenizer_config_path):
+            try:
+                with open(tokenizer_config_path, 'r', encoding='utf-8') as f:
+                    tc_data = json.load(f)
+                    # Check for eos_token definition
+                    eos_token = tc_data.get("eos_token")
+                    if isinstance(eos_token, dict):
+                        content = eos_token.get("content")
+                        if content and content not in tokens_map:
+                            pass  # ID would need to be found from added_tokens
+                    elif isinstance(eos_token, str) and eos_token not in tokens_map:
+                        pass
+            except Exception:
+                pass
+        
+        return tokens_map
+
+    def is_gguf_chat_model(self, folder, tokens_map):
+        """Determine if this is a chat model by checking for chat-specific tokens."""
+        # Check for common chat tokens
+        chat_indicators = [
+            "<|im_start|>", "<|im_end|>",  # ChatML / Qwen
+            "<|start_header_id|>", "<|eot_id|>",  # Llama 3
+            "[INST]", "[/INST]",  # Mistral / Llama 2
+            "<start_of_turn>", "<end_of_turn>",  # Gemma
+            "<|user|>", "<|assistant|>",  # Phi
+        ]
+        
+        for indicator in chat_indicators:
+            if indicator in tokens_map:
+                return True
+        
+        # Check chat_template in tokenizer_config.json
+        tokenizer_config_path = os.path.join(folder, "tokenizer_config.json")
+        if os.path.exists(tokenizer_config_path):
+            try:
+                with open(tokenizer_config_path, 'r', encoding='utf-8') as f:
+                    tc_data = json.load(f)
+                    if tc_data.get("chat_template"):
+                        return True
+            except Exception:
+                pass
+        
+        # Check for chat_template.jinja file
+        if os.path.exists(os.path.join(folder, "chat_template.jinja")):
+            return True
+        
+        return False
+
+    def find_gguf_correct_eos_token(self, folder, config, tokens_map):
+        """Find the correct EOS token for chat models."""
+        model_type = self.detect_gguf_model_type(config)
+        
+        if model_type and model_type in CHAT_MODEL_CONFIGS:
+            eos_content = CHAT_MODEL_CONFIGS[model_type]["eos_content"]
+            if eos_content in tokens_map:
+                return tokens_map[eos_content], eos_content
+        
+        # Fallback: check tokenizer_config.json for eos_token
+        tokenizer_config_path = os.path.join(folder, "tokenizer_config.json")
+        if os.path.exists(tokenizer_config_path):
+            try:
+                with open(tokenizer_config_path, 'r', encoding='utf-8') as f:
+                    tc_data = json.load(f)
+                    eos_token = tc_data.get("eos_token")
+                    if isinstance(eos_token, dict):
+                        content = eos_token.get("content", "")
+                        if content in tokens_map:
+                            return tokens_map[content], content
+                    elif isinstance(eos_token, str) and eos_token in tokens_map:
+                        return tokens_map[eos_token], eos_token
+            except Exception:
+                pass
+        
+        # Check for common chat EOS tokens in order of preference
+        preferred_eos = ["<|im_end|>", "<|eot_id|>", "<end_of_turn>", "<|end|>", "</s>"]
+        for eos in preferred_eos:
+            if eos in tokens_map:
+                return tokens_map[eos], eos
+        
+        return None, None
+
+    def fix_gguf_model_config(self, folder):
+        """Auto-fix model configuration for proper EOS token handling before GGUF conversion."""
+        config_path = os.path.join(folder, "config.json")
+        gen_config_path = os.path.join(folder, "generation_config.json")
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+        except Exception as e:
+            self.log_message(f"❌ Error reading config.json: {e}")
+            return False
+        
+        tokens_map = self.get_gguf_added_tokens(folder)
+        
+        if not self.is_gguf_chat_model(folder, tokens_map):
+            self.log_message("ℹ️ Model does not appear to be a chat model, skipping EOS fix.")
+            return True
+        
+        self.log_message("🔍 Detected chat model, checking EOS token configuration...")
+        
+        correct_eos_id, eos_content = self.find_gguf_correct_eos_token(folder, config, tokens_map)
+        
+        if correct_eos_id is None:
+            self.log_message("⚠️ Warning: Could not determine correct EOS token, using defaults.")
+            return True
+        
+        current_eos = config.get("eos_token_id")
+        
+        # Handle case where eos_token_id might be a list
+        if isinstance(current_eos, list):
+            current_eos = current_eos[0] if current_eos else None
+        
+        if current_eos == correct_eos_id:
+            self.log_message(f"✅ EOS token already correct: {eos_content} (ID: {correct_eos_id})")
+            return True
+        
+        self.log_message(f"🔧 Fixing EOS token: {eos_content} (ID: {correct_eos_id})")
+        
+        # Backup original config
+        backup_path = config_path + ".backup"
+        if not os.path.exists(backup_path):
+            shutil.copy(config_path, backup_path)
+            self.log_message(f"📁 Created backup: {backup_path}")
+        
+        # Update config.json
+        config["eos_token_id"] = correct_eos_id
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+        self.log_message("✅ Updated config.json")
+        
+        # Update generation_config.json if it exists
+        if os.path.exists(gen_config_path):
+            try:
+                with open(gen_config_path, 'r', encoding='utf-8') as f:
+                    gen_config = json.load(f)
+                
+                # Backup
+                gen_backup_path = gen_config_path + ".backup"
+                if not os.path.exists(gen_backup_path):
+                    shutil.copy(gen_config_path, gen_backup_path)
+                
+                gen_config["eos_token_id"] = correct_eos_id
+                with open(gen_config_path, 'w', encoding='utf-8') as f:
+                    json.dump(gen_config, f, indent=2)
+                self.log_message("✅ Updated generation_config.json")
+            except Exception as e:
+                self.log_message(f"⚠️ Warning: Could not update generation_config.json: {e}")
+        
+        return True
+
+    def run_gguf_command(self, cmd, description="Running command"):
+        """Run a shell command and log output in real-time."""
+        self.log_message(f"🔄 {description}...")
+        self.log_message(f"   Command: {' '.join(cmd)}")
+        
+        # Set up environment with library path for llama.cpp binaries
+        env = os.environ.copy()
+        lib_path = os.path.join(LLAMA_CPP_DIR, "build", "bin")
+        if "LD_LIBRARY_PATH" in env:
+            env["LD_LIBRARY_PATH"] = lib_path + ":" + env["LD_LIBRARY_PATH"]
+        else:
+            env["LD_LIBRARY_PATH"] = lib_path
+        
+        try:
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT, 
+                text=True, 
+                bufsize=1,
+                env=env
+            )
+            
+            for line in process.stdout:
+                line = line.strip()
+                if line:
+                    # Log significant lines, skip verbose ones
+                    if any(keyword in line.lower() for keyword in ['error', 'warning', 'loading', 'writing', 'converting', 'quantiz']):
+                        self.log_message(f"   {line}")
+            
+            process.wait()
+            
+            if process.returncode != 0:
+                self.log_message(f"❌ Command failed with return code {process.returncode}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.log_message(f"❌ Error running command: {e}")
+            return False
+
+    def run_gguf_conversion(self, source_dir, gguf_dir):
+        """Convert HuggingFace model to GGUF format."""
+        try:
+            # Check for interruption
+            if not self.is_training or self.force_stop:
+                self.log_message("⏹️ GGUF conversion stopped before starting")
+                return
+            
+            gguf_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Determine source (trained model or pretrained)
+            if source_dir is None:
+                # Use pretrained model - need to download/cache it first
+                model_name = self.model_name.get()
+                self.log_message(f"🔄 Converting pretrained model to GGUF: {model_name}")
+                
+                # Download/cache the model
+                self.log_message("📥 Ensuring model is downloaded...")
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
+                model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float32)
+                
+                # Save to temporary location for conversion
+                temp_model_dir = gguf_dir / "temp_hf_model"
+                temp_model_dir.mkdir(exist_ok=True)
+                self.log_message(f"💾 Saving model for conversion: {temp_model_dir}")
+                model.save_pretrained(str(temp_model_dir))
+                tokenizer.save_pretrained(str(temp_model_dir))
+                
+                # Clean up model from memory
+                del model
+                if torch and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
+                
+                conversion_source = str(temp_model_dir)
+            else:
+                self.log_message(f"🔄 Converting trained model to GGUF: {source_dir}")
+                conversion_source = str(source_dir)
+            
+            # Auto-fix EOS token if enabled
+            if self.gguf_auto_fix_eos.get():
+                self.log_message("🔧 Checking model configuration...")
+                if not self.fix_gguf_model_config(conversion_source):
+                    self.log_message("⚠️ Warning: Could not auto-fix configuration, continuing anyway...")
+            
+            # Check for interruption
+            if not self.is_training or self.force_stop:
+                self.log_message("⏹️ GGUF conversion stopped")
+                return
+            
+            # Validate required files
+            required_files = ["config.json"]
+            missing = [f for f in required_files if not os.path.exists(os.path.join(conversion_source, f))]
+            if missing:
+                raise Exception(f"Missing required files: {', '.join(missing)}")
+            
+            # Check for model weights
+            has_safetensors = any(f.endswith(".safetensors") for f in os.listdir(conversion_source))
+            has_bin = any(f.endswith(".bin") for f in os.listdir(conversion_source))
+            
+            if not (has_safetensors or has_bin):
+                raise Exception("No model weights found (.safetensors or .bin)")
+            
+            self.log_message("✅ Model files validated")
+            
+            # Step 1: Convert HF to GGUF (F16)
+            self.log_message("📦 Step 1: Converting to GGUF format (F16)...")
+            self.set_export_progress(20)
+            
+            gguf_f16_file = gguf_dir / "model-f16.gguf"
+            
+            cmd_convert = [
+                sys.executable, 
+                GGUF_CONVERT_SCRIPT, 
+                conversion_source, 
+                "--outfile", str(gguf_f16_file), 
+                "--outtype", "f16"
+            ]
+            
+            if not self.run_gguf_command(cmd_convert, "Converting to F16 GGUF"):
+                raise Exception("GGUF conversion failed")
+            
+            if not gguf_f16_file.exists():
+                raise Exception(f"GGUF file not created: {gguf_f16_file}")
+            
+            self.set_export_progress(50)
+            self.log_message(f"✅ F16 GGUF created: {gguf_f16_file}")
+            
+            # Check for interruption
+            if not self.is_training or self.force_stop:
+                self.log_message("⏹️ GGUF conversion stopped after F16 creation")
+                return
+            
+            # Step 2: Quantize (if not F16)
+            quant_type = self.gguf_quant_type.get()
+            final_file = gguf_f16_file
+            
+            if quant_type != "F16":
+                self.log_message(f"⚙️ Step 2: Quantizing to {quant_type}...")
+                self.set_quantization_progress(0)
+                
+                quantized_file = gguf_dir / f"model-{quant_type}.gguf"
+                
+                cmd_quantize = [
+                    GGUF_QUANTIZE_BIN,
+                    str(gguf_f16_file),
+                    str(quantized_file),
+                    quant_type
+                ]
+                
+                if not os.path.exists(GGUF_QUANTIZE_BIN):
+                    self.log_message(f"⚠️ Quantize binary not found: {GGUF_QUANTIZE_BIN}")
+                    self.log_message("💡 To quantize, build llama.cpp: cd gguf/llama.cpp && make")
+                    self.log_message(f"📁 Using F16 model: {gguf_f16_file}")
+                else:
+                    if self.run_gguf_command(cmd_quantize, f"Quantizing to {quant_type}"):
+                        if quantized_file.exists():
+                            final_file = quantized_file
+                            self.log_message(f"✅ Quantization complete: {final_file}")
+                            
+                            # Optionally remove F16 intermediate file to save space
+                            # gguf_f16_file.unlink()
+                        else:
+                            self.log_message("⚠️ Quantization may have failed - quantized file not found")
+                    else:
+                        self.log_message("⚠️ Quantization failed, using F16 model")
+            
+            self.set_quantization_progress(100)
+            
+            # Copy tokenizer files for reference
+            tokenizer_files = ["tokenizer.json", "tokenizer_config.json", "config.json", 
+                             "chat_template.jinja", "generation_config.json"]
+            for fname in tokenizer_files:
+                src = Path(conversion_source) / fname
+                if src.exists():
+                    shutil.copy2(str(src), str(gguf_dir / fname))
+            
+            # Clean up temp directory if we created one
+            if source_dir is None:
+                temp_model_dir = gguf_dir / "temp_hf_model"
+                if temp_model_dir.exists():
+                    shutil.rmtree(str(temp_model_dir))
+                    self.log_message("🗑️ Cleaned up temporary files")
+            
+            # Report results
+            final_size = final_file.stat().st_size / (1024*1024)
+            self.log_message(f"🎉 GGUF Conversion Complete!")
+            self.log_message(f"📁 Output: {final_file}")
+            self.log_message(f"📊 Size: {final_size:.1f} MB")
+            
+            self.set_export_progress(100)
+            
+        except Exception as e:
+            self.log_message(f"❌ GGUF conversion error: {str(e)}")
+            raise
             
     def stop_training(self):
         """Stop the current operation (training, ONNX conversion, or quantization) with confirmation"""
@@ -5376,19 +6078,152 @@ Choose based on your hardware and model size."""
         # Start generation
         self._start_generation(enhanced_prompt, "code_completion")
     
+    def update_output_safe(self, text):
+        """Thread-safe method to update test output text widget"""
+        def _update():
+            if hasattr(self, 'test_output'):
+                self.test_output.insert(tk.END, text)
+                self.test_output.see(tk.END)
+        self.root.after(0, _update)
+    
     def _start_generation(self, prompt, mode):
         """Helper method to start generation for different modes"""
         # Disable generate button and enable stop button
         self.generate_button.config(state='disabled')
         self.stop_generation_button.config(state='normal')
         
-        # Start generation in separate thread
-        self.generation_thread = threading.Thread(
-            target=self.run_generation,
-            args=(self.model_path_var.get(), prompt, mode),
-            daemon=True
-        )
+        # Determine which generation method to use based on selected format
+        selected_format = self.test_model_format.get()
+        
+        if selected_format == "GGUF":
+            # Start GGUF generation in separate thread
+            self.generation_thread = threading.Thread(
+                target=self.run_gguf_generation,
+                args=(self.model_path_var.get(), prompt, mode),
+                daemon=True
+            )
+        else:
+            # Start ONNX generation in separate thread (default)
+            self.generation_thread = threading.Thread(
+                target=self.run_generation,
+                args=(self.model_path_var.get(), prompt, mode),
+                daemon=True
+            )
+        
         self.generation_thread.start()
+    
+    def run_gguf_generation(self, model_path, prompt, mode="single"):
+        """Run text generation using GGUF model via llama-cli"""
+        try:
+            self.tech_log(f"🚀 Starting GGUF text generation... Mode: {mode}")
+            self.tech_log(f"📁 Model: {model_path}")
+            self.tech_log(f"💬 Prompt: '{prompt[:100]}{'...' if len(prompt) > 100 else ''}'")
+            
+            # Check if llama-cli exists
+            if not os.path.exists(GGUF_MAIN_BIN):
+                self.tech_log(f"❌ llama-cli not found at: {GGUF_MAIN_BIN}")
+                self.tech_log("💡 Build llama.cpp: cd gguf/llama.cpp && make")
+                self.update_output_safe("❌ Error: llama-cli not found. Please build llama.cpp first.\n")
+                return
+            
+            # Resolve the model path
+            resolved_model_path = self.resolve_project_path(model_path)
+            
+            if not os.path.exists(resolved_model_path):
+                self.tech_log(f"❌ GGUF model not found: {resolved_model_path}")
+                self.update_output_safe(f"❌ Error: GGUF model not found at {resolved_model_path}\n")
+                return
+            
+            # Build llama-cli command
+            max_tokens = self.test_max_length.get()
+            temperature = self.test_temperature.get()
+            top_p = self.test_top_p.get()
+            top_k = self.test_top_k.get()
+            repetition_penalty = self.test_repetition_penalty.get()
+            
+            # Construct the command
+            cmd = [
+                GGUF_MAIN_BIN,
+                "-m", resolved_model_path,
+                "-p", prompt,
+                "-n", str(max_tokens),
+                "--temp", str(temperature),
+                "--top-p", str(top_p),
+                "--top-k", str(top_k),
+                "--repeat-penalty", str(repetition_penalty),
+                "--no-display-prompt",  # Don't repeat the prompt in output
+            ]
+            
+            # Add context size
+            cmd.extend(["-c", "2048"])  # Default context size
+            
+            self.tech_log(f"🔧 Running: {' '.join(cmd[:5])}...")  # Log first few args
+            self.tech_log(f"⚙️ Params: max_tokens={max_tokens}, temp={temperature}, top_p={top_p}")
+            
+            # Set up environment
+            env = os.environ.copy()
+            lib_path = os.path.join(LLAMA_CPP_DIR, "build", "bin")
+            if "LD_LIBRARY_PATH" in env:
+                env["LD_LIBRARY_PATH"] = lib_path + ":" + env["LD_LIBRARY_PATH"]
+            else:
+                env["LD_LIBRARY_PATH"] = lib_path
+            
+            # Run the command
+            start_time = time.time()
+            
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=env
+                )
+                
+                # Read output in real-time
+                output_text = ""
+                for line in process.stdout:
+                    if not hasattr(self, 'generation_thread') or not self.generation_thread.is_alive():
+                        process.terminate()
+                        break
+                    
+                    # Accumulate and display output
+                    output_text += line
+                    self.update_output_safe(line)
+                
+                process.wait()
+                
+                elapsed = time.time() - start_time
+                
+                if process.returncode != 0:
+                    stderr = process.stderr.read()
+                    self.tech_log(f"❌ GGUF generation failed: {stderr}")
+                    self.update_output_safe(f"\n❌ Error: {stderr}\n")
+                else:
+                    # Calculate stats
+                    words = len(output_text.split())
+                    self.tech_log(f"✅ Generation completed in {elapsed:.2f}s ({words} words)")
+                    
+                    # Show completion message
+                    self.update_output_safe(f"\n\n{'='*30}\n")
+                    self.update_output_safe(f"⏱️ Generated in {elapsed:.2f}s\n")
+                    
+            except FileNotFoundError:
+                self.tech_log(f"❌ llama-cli executable not found")
+                self.update_output_safe("❌ Error: llama-cli not found\n")
+                
+        except Exception as e:
+            self.tech_log(f"❌ GGUF generation error: {e}")
+            self.update_output_safe(f"❌ Error: {str(e)}\n")
+            
+        finally:
+            # Re-enable generate button
+            def restore_buttons():
+                if hasattr(self, 'generate_button'):
+                    self.generate_button.config(state='normal')
+                if hasattr(self, 'stop_generation_button'):
+                    self.stop_generation_button.config(state='disabled')
+            self.root.after(0, restore_buttons)
     
     def run_generation(self, model_path, prompt, mode="single"):
         """Run text generation in background thread"""
@@ -6575,34 +7410,67 @@ Choose based on your hardware and model size."""
             # Resolve relative to project root instead of current working directory
             base_dir = Path(self.resolve_project_path(base_dir_path))
             
-            self.tech_log(f"🔍 Scanning for models in: {base_dir}")
+            # Get selected format filter
+            selected_format = self.test_model_format.get()
+            
+            self.tech_log(f"🔍 Scanning for {selected_format} models in: {base_dir}")
             
             models = []
             
             # Clear existing model paths to ensure deleted models are removed
             self.model_paths = {}
             
-            # Look for ONNX models in session subdirectories
+            # Look for models in session subdirectories
             if base_dir.exists():
                 session_count = 0
                 for session_dir in base_dir.glob("*"):
                     if session_dir.is_dir():
                         session_count += 1
-                        # Check for converted and quantized models in this session directory
-                        for subdir in ['2_converted', '3_quantized']:
-                            model_dir = session_dir / subdir
-                            if model_dir.exists() and (model_dir / 'model.onnx').exists():
-                                # Create readable display name
-                                session_name = session_dir.name
-                                # Use the session name directly (e.g., DialoGPT-small, DialoGPT-small_2)
-                                model_type = "Quantized" if subdir == '3_quantized' else "Standard"
-                                display_name = f"{session_name} ({model_type})"
-                                
-                                models.append(display_name)
-                                # Store the relative path for the model directory
-                                relative_model_path = self.convert_to_relative_path(str(model_dir))
-                                self.model_paths[display_name] = relative_model_path
-                                self.tech_log(f"  ✅ Found: {display_name} at {relative_model_path}")
+                        
+                        if selected_format == "ONNX":
+                            # Check for converted and quantized ONNX models
+                            for subdir in ['2_converted', '3_quantized']:
+                                model_dir = session_dir / subdir
+                                if model_dir.exists() and (model_dir / 'model.onnx').exists():
+                                    session_name = session_dir.name
+                                    model_type = "Quantized" if subdir == '3_quantized' else "Standard"
+                                    display_name = f"{session_name} ({model_type})"
+                                    
+                                    models.append(display_name)
+                                    relative_model_path = self.convert_to_relative_path(str(model_dir))
+                                    self.model_paths[display_name] = relative_model_path
+                                    self.tech_log(f"  ✅ Found ONNX: {display_name} at {relative_model_path}")
+                        
+                        elif selected_format == "GGUF":
+                            # Check for GGUF models in 2_gguf directory
+                            gguf_dir = session_dir / "2_gguf"
+                            if gguf_dir.exists():
+                                # Find all .gguf files in the directory
+                                gguf_files = list(gguf_dir.glob("*.gguf"))
+                                for gguf_file in gguf_files:
+                                    session_name = session_dir.name
+                                    # Extract quantization type from filename (e.g., model-Q4_K_M.gguf -> Q4_K_M)
+                                    quant_type = gguf_file.stem.replace("model-", "")
+                                    display_name = f"{session_name} ({quant_type})"
+                                    
+                                    models.append(display_name)
+                                    relative_model_path = self.convert_to_relative_path(str(gguf_file))
+                                    self.model_paths[display_name] = relative_model_path
+                                    self.tech_log(f"  ✅ Found GGUF: {display_name} at {relative_model_path}")
+                            
+                            # Also check 1_trained for any .gguf files (in case GGUF is stored there)
+                            trained_dir = session_dir / "1_trained"
+                            if trained_dir.exists():
+                                for gguf_file in trained_dir.glob("*.gguf"):
+                                    session_name = session_dir.name
+                                    quant_type = gguf_file.stem.replace("model-", "")
+                                    display_name = f"{session_name} ({quant_type})"
+                                    
+                                    if display_name not in self.model_paths:  # Avoid duplicates
+                                        models.append(display_name)
+                                        relative_model_path = self.convert_to_relative_path(str(gguf_file))
+                                        self.model_paths[display_name] = relative_model_path
+                                        self.tech_log(f"  ✅ Found GGUF: {display_name} at {relative_model_path}")
                 
                 self.tech_log(f"📁 Scanned {session_count} session directories")
             else:
@@ -6612,7 +7480,11 @@ Choose based on your hardware and model size."""
             if models:
                 # Sort models to show newest first (if possible based on timestamps)
                 try:
-                    models.sort(key=lambda x: Path(self.model_paths[x]).stat().st_mtime, reverse=True)
+                    def get_mtime(model_name):
+                        model_path = self.model_paths[model_name]
+                        resolved_path = self.resolve_project_path(model_path)
+                        return Path(resolved_path).stat().st_mtime
+                    models.sort(key=get_mtime, reverse=True)
                     self.tech_log("📅 Sorted models by modification time (newest first)")
                 except Exception as sort_error:
                     models.sort()  # Fallback to alphabetical sorting
@@ -6623,17 +7495,17 @@ Choose based on your hardware and model size."""
                 self.model_list_combo.set(models[0])
                 self.model_path_var.set(self.model_paths[models[0]])
                 self.generate_button.config(state='normal')
-                self.tech_log(f"✅ Loaded {len(models)} model(s) successfully")
+                self.tech_log(f"✅ Loaded {len(models)} {selected_format} model(s) successfully")
                 if len(models) <= 3:
                     self.tech_log(f"   Models: {', '.join(models)}")
                 else:
                     self.tech_log(f"   Models: {', '.join(models[:3])} + {len(models)-3} more")
             else:
-                self.model_list_combo['values'] = ["No models found"]
-                self.model_list_combo.set("No models found")
+                self.model_list_combo['values'] = [f"No {selected_format} models found"]
+                self.model_list_combo.set(f"No {selected_format} models found")
                 self.model_path_var.set("")
                 self.generate_button.config(state='disabled')
-                self.tech_log("⚠️ No ONNX models found - train a model first or use Refresh button")
+                self.tech_log(f"⚠️ No {selected_format} models found - train a model first or use Refresh button")
                 
         except Exception as e:
             self.tech_log(f"❌ Error refreshing model list: {e}")
