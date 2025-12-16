@@ -125,7 +125,8 @@ GGUF_SUPPORTED_ARCHITECTURES = [
     "llama", "mistral", "qwen", "qwen2", "phi", "phi3", "gemma", "gemma2",
     "falcon", "stablelm", "baichuan", "internlm", "yi", "deepseek", 
     "codellama", "tinyllama", "vicuna", "alpaca", "wizardlm", "openchat",
-    "zephyr", "neural-chat", "starling", "dolphin", "orca"
+    "zephyr", "neural-chat", "starling", "dolphin", "orca",
+    "smollm", "minicpm"
 ]
 
 # Models that are explicitly NOT recommended for GGUF (base models without chat training)
@@ -660,6 +661,167 @@ class ModelTrainer:
                 "architecture": "Qwen2 transformer",
                 "context_length": 32768,
                 "vocabulary": "151,936 tokens",
+                "recommended_lr": ["1e-5", "5e-6", "2e-6"],
+                "recommended_batch": [1, 2, 4]
+            },
+            # Qwen2.5 Instruct models (latest Qwen series)
+            "Qwen/Qwen2.5-0.5B-Instruct": {
+                "name": "Qwen2.5 0.5B Instruct",
+                "description": "Latest Qwen2.5 instruction-tuned model. Ultra-compact with excellent chat capabilities and multilingual support.",
+                "parameters": "0.5B",
+                "size_pytorch": "1.12 GB",
+                "size_onnx": "840 MB",
+                "size_quantized": "280 MB",
+                "architecture": "Qwen2 transformer",
+                "context_length": 32768,
+                "vocabulary": "151,936 tokens",
+                "recommended_lr": ["5e-5", "2e-5", "1e-5"],
+                "recommended_batch": [2, 4, 8]
+            },
+            "Qwen/Qwen2.5-1.5B-Instruct": {
+                "name": "Qwen2.5 1.5B Instruct",
+                "description": "Latest Qwen2.5 instruction-tuned model. Excellent balance of size and capability with strong chat performance.",
+                "parameters": "1.5B",
+                "size_pytorch": "3.09 GB",
+                "size_onnx": "2.32 GB",
+                "size_quantized": "774 MB",
+                "architecture": "Qwen2 transformer",
+                "context_length": 32768,
+                "vocabulary": "151,936 tokens",
+                "recommended_lr": ["1e-5", "5e-6", "2e-6"],
+                "recommended_batch": [1, 2, 4]
+            },
+            "Qwen/Qwen2.5-3B-Instruct": {
+                "name": "Qwen2.5 3B Instruct",
+                "description": "Latest Qwen2.5 instruction-tuned model. Strong reasoning and chat capabilities with excellent multilingual support.",
+                "parameters": "3B",
+                "size_pytorch": "6.18 GB",
+                "size_onnx": "4.64 GB",
+                "size_quantized": "1.55 GB",
+                "architecture": "Qwen2 transformer",
+                "context_length": 32768,
+                "vocabulary": "151,936 tokens",
+                "recommended_lr": ["5e-6", "2e-6", "1e-6"],
+                "recommended_batch": [1, 2]
+            },
+            # SmolLM Instruct models (first generation)
+            "HuggingFaceTB/SmolLM-135M-Instruct": {
+                "name": "SmolLM 135M Instruct",
+                "description": "HuggingFace's ultra-compact instruction-tuned model. Perfect for testing and resource-constrained environments.",
+                "parameters": "135M",
+                "size_pytorch": "270 MB",
+                "size_onnx": "203 MB",
+                "size_quantized": "68 MB",
+                "architecture": "SmolLM transformer",
+                "context_length": 2048,
+                "vocabulary": "49,152 tokens",
+                "recommended_lr": ["1e-4", "5e-5", "2e-5"],
+                "recommended_batch": [4, 8, 16]
+            },
+            "HuggingFaceTB/SmolLM-360M-Instruct": {
+                "name": "SmolLM 360M Instruct",
+                "description": "HuggingFace's small instruction-tuned model. Great balance of speed and capability for chat tasks.",
+                "parameters": "360M",
+                "size_pytorch": "720 MB",
+                "size_onnx": "540 MB",
+                "size_quantized": "180 MB",
+                "architecture": "SmolLM transformer",
+                "context_length": 2048,
+                "vocabulary": "49,152 tokens",
+                "recommended_lr": ["5e-5", "3e-5", "1e-5"],
+                "recommended_batch": [2, 4, 8]
+            },
+            "HuggingFaceTB/SmolLM-1.7B-Instruct": {
+                "name": "SmolLM 1.7B Instruct",
+                "description": "HuggingFace's compact instruction-tuned model. Excellent quality-to-size ratio for chat applications.",
+                "parameters": "1.7B",
+                "size_pytorch": "3.40 GB",
+                "size_onnx": "2.55 GB",
+                "size_quantized": "850 MB",
+                "architecture": "SmolLM transformer",
+                "context_length": 2048,
+                "vocabulary": "49,152 tokens",
+                "recommended_lr": ["1e-5", "5e-6", "2e-6"],
+                "recommended_batch": [1, 2, 4]
+            },
+            # SmolLM2 Instruct models (second generation, improved)
+            "HuggingFaceTB/SmolLM2-135M-Instruct": {
+                "name": "SmolLM2 135M Instruct",
+                "description": "HuggingFace's improved ultra-compact model. Second generation with better training and chat capabilities.",
+                "parameters": "135M",
+                "size_pytorch": "270 MB",
+                "size_onnx": "203 MB",
+                "size_quantized": "68 MB",
+                "architecture": "SmolLM transformer",
+                "context_length": 8192,
+                "vocabulary": "49,152 tokens",
+                "recommended_lr": ["1e-4", "5e-5", "2e-5"],
+                "recommended_batch": [4, 8, 16]
+            },
+            "HuggingFaceTB/SmolLM2-360M-Instruct": {
+                "name": "SmolLM2 360M Instruct",
+                "description": "HuggingFace's improved small model. Second generation with enhanced instruction-following.",
+                "parameters": "360M",
+                "size_pytorch": "720 MB",
+                "size_onnx": "540 MB",
+                "size_quantized": "180 MB",
+                "architecture": "SmolLM transformer",
+                "context_length": 8192,
+                "vocabulary": "49,152 tokens",
+                "recommended_lr": ["5e-5", "3e-5", "1e-5"],
+                "recommended_batch": [2, 4, 8]
+            },
+            "HuggingFaceTB/SmolLM2-1.7B-Instruct": {
+                "name": "SmolLM2 1.7B Instruct",
+                "description": "HuggingFace's improved compact model. Second generation with excellent chat quality and longer context.",
+                "parameters": "1.7B",
+                "size_pytorch": "3.40 GB",
+                "size_onnx": "2.55 GB",
+                "size_quantized": "850 MB",
+                "architecture": "SmolLM transformer",
+                "context_length": 8192,
+                "vocabulary": "49,152 tokens",
+                "recommended_lr": ["1e-5", "5e-6", "2e-6"],
+                "recommended_batch": [1, 2, 4]
+            },
+            # StableLM Chat/Zephyr variants
+            "stabilityai/stablelm-2-zephyr-1_6b": {
+                "name": "StableLM 2 Zephyr 1.6B",
+                "description": "Stability AI's chat-tuned model. Zephyr variant optimized for helpful and harmless conversations.",
+                "parameters": "1.6B",
+                "size_pytorch": "3.31 GB",
+                "size_onnx": "2.48 GB",
+                "size_quantized": "827 MB",
+                "architecture": "StableLM transformer",
+                "context_length": 4096,
+                "vocabulary": "100,289 tokens",
+                "recommended_lr": ["1e-5", "5e-6", "2e-6"],
+                "recommended_batch": [1, 2, 4]
+            },
+            "stabilityai/stablelm-zephyr-3b": {
+                "name": "StableLM Zephyr 3B",
+                "description": "Stability AI's larger chat model. Strong conversational abilities with good instruction-following.",
+                "parameters": "3B",
+                "size_pytorch": "6.18 GB",
+                "size_onnx": "4.64 GB",
+                "size_quantized": "1.55 GB",
+                "architecture": "StableLM transformer",
+                "context_length": 4096,
+                "vocabulary": "100,289 tokens",
+                "recommended_lr": ["5e-6", "2e-6", "1e-6"],
+                "recommended_batch": [1, 2]
+            },
+            # MiniCPM model (GGUF-only, ONNX compatibility uncertain)
+            "openbmb/MiniCPM-2B-sft-bf16": {
+                "name": "MiniCPM 2B",
+                "description": "OpenBMB's efficient 2B chat model. Strong performance relative to size with SFT training. GGUF export only.",
+                "parameters": "2B",
+                "size_pytorch": "4.00 GB",
+                "size_onnx": "N/A",
+                "size_quantized": "1.00 GB",
+                "architecture": "MiniCPM transformer",
+                "context_length": 4096,
+                "vocabulary": "122,753 tokens",
                 "recommended_lr": ["1e-5", "5e-6", "2e-6"],
                 "recommended_batch": [1, 2, 4]
             },
@@ -3033,6 +3195,12 @@ class ModelTrainer:
     def run_training(self):
         """Run the actual training or conversion process"""
         try:
+            # Ensure ML dependencies are loaded
+            if not check_ml_dependencies():
+                self.log_message(f"❌ ML dependencies not available: {ML_IMPORT_ERROR}")
+                self.log_message("💡 Install: pip install torch transformers datasets optimum onnxruntime")
+                return
+            
             training_enabled = self.enable_training.get()
             
             if training_enabled:
@@ -3229,6 +3397,7 @@ class ModelTrainer:
     
     def _run_actual_training_impl(self, train_dir, device_strategy="auto"):
         """Implementation of actual training with device strategy parameter"""
+        global torch, AutoTokenizer, AutoModelForCausalLM, TrainerCallback, Trainer, TrainingArguments, DataCollatorForLanguageModeling
         try:
             # Simple progress callback to track training progress and handle interruption
             class ProgressCallback(TrainerCallback):
@@ -4792,6 +4961,7 @@ Choose based on your hardware and model size."""
     
     def _run_onnx_export_impl(self, source_dir, convert_dir, device_strategy="auto"):
         """Export trained model or pretrained model to ONNX format"""
+        global torch, AutoConfig, AutoTokenizer, AutoModelForCausalLM, ORTModelForCausalLM
         try:
             # Check for interruption at start
             if not self.is_training or self.force_stop:
@@ -4860,11 +5030,26 @@ Choose based on your hardware and model size."""
                             "torch_dtype": torch.float32,
                             "device_map": "cpu"
                         })
+                    
+                    # Patch torch.onnx.export to force legacy mode (dynamo=False)
+                    # This is required because optimum forces dynamo when onnxscript is present,
+                    # but dynamo export fails for some models in this environment.
+                    import torch.onnx
+                    original_export = torch.onnx.export
+                    
+                    def patched_export(*args, **kwargs):
+                        kwargs['dynamo'] = False
+                        return original_export(*args, **kwargs)
+                    
+                    try:
+                        torch.onnx.export = patched_export
+                        ort_model = ORTModelForCausalLM.from_pretrained(
+                            model_name, 
+                            **export_kwargs
+                        )
+                    finally:
+                        torch.onnx.export = original_export
                         
-                    ort_model = ORTModelForCausalLM.from_pretrained(
-                        model_name, 
-                        **export_kwargs
-                    )
                     self.log_message("✅ ONNX export completed")
                 except Exception as export_error:
                     self.log_message(f"❌ ONNX export failed: {export_error}")
@@ -5306,6 +5491,7 @@ Choose based on your hardware and model size."""
 
     def run_gguf_conversion(self, source_dir, gguf_dir):
         """Convert HuggingFace model to GGUF format."""
+        global torch, AutoTokenizer, AutoModelForCausalLM
         try:
             # Check for interruption
             if not self.is_training or self.force_stop:
@@ -6065,8 +6251,44 @@ Choose based on your hardware and model size."""
     def _detect_gguf_model_type(self, model_dir):
         """Detect model type from config.json or model path for GGUF chat template selection"""
         model_type = None
+        uses_chatml = False
         
-        # Try to read config.json
+        # First, check tokenizer_config.json for ChatML tokens (more reliable for template detection)
+        tokenizer_config_path = os.path.join(model_dir, "tokenizer_config.json")
+        if os.path.exists(tokenizer_config_path):
+            try:
+                with open(tokenizer_config_path, 'r', encoding='utf-8') as f:
+                    tokenizer_config = json.load(f)
+                    # Check added_tokens_decoder for ChatML markers
+                    added_tokens = tokenizer_config.get("added_tokens_decoder", {})
+                    for token_info in added_tokens.values():
+                        content = token_info.get("content", "")
+                        if content in ["<|im_start|>", "<|im_end|>"]:
+                            uses_chatml = True
+                            self.tech_log(f"📄 Found ChatML token in tokenizer: {content}")
+                            break
+            except Exception as e:
+                self.tech_log(f"⚠️ Could not read tokenizer_config.json: {e}")
+        
+        # Also check chat_template.jinja if it exists
+        if not uses_chatml:
+            chat_template_path = os.path.join(model_dir, "chat_template.jinja")
+            if os.path.exists(chat_template_path):
+                try:
+                    with open(chat_template_path, 'r', encoding='utf-8') as f:
+                        template_content = f.read()
+                        if "<|im_start|>" in template_content or "<|im_end|>" in template_content:
+                            uses_chatml = True
+                            self.tech_log(f"📄 Found ChatML format in chat_template.jinja")
+                except Exception as e:
+                    self.tech_log(f"⚠️ Could not read chat_template.jinja: {e}")
+        
+        # If ChatML format detected, return early with chatml indicator
+        if uses_chatml:
+            self.tech_log("✅ Model uses ChatML format (im_start/im_end tokens)")
+            return "chatml"  # Special marker for ChatML models
+        
+        # Try to read config.json for model_type
         config_path = os.path.join(model_dir, "config.json")
         if os.path.exists(config_path):
             try:
@@ -6173,9 +6395,9 @@ Choose based on your hardware and model size."""
             ]
             
             # Add chat template based on detected model type
-            if model_type == "qwen" or model_type == "qwen2":
+            if model_type == "chatml" or model_type == "qwen" or model_type == "qwen2":
                 cmd.extend(["--chat-template", "chatml"])
-                self.tech_log("📝 Using ChatML template for Qwen")
+                self.tech_log("📝 Using ChatML template")
             elif model_type == "llama":
                 cmd.extend(["--chat-template", "llama3"])
                 self.tech_log("📝 Using Llama3 template")
