@@ -1,4 +1,4 @@
-# 🤖 ONNX Model Trainer v0.9
+# 🤖 ONNX Model Trainer v0.9.1
 
 A complete GUI application for training transformer language models and exporting them to **GGUF** or **ONNX** format — from training to interactive chat testing, all in one place.
 
