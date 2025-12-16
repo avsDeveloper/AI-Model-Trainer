@@ -182,37 +182,14 @@ output/
 
 ## 🛠️ Supported Models
 
-### Small Chat Models (Recommended)
-
-| Model | Size | GGUF | ONNX | Notes |
-|-------|------|------|------|-------|
-| SmolLM 135M/360M/1.7B Instruct | 135M-1.7B | ✅ | ✅ | HuggingFace compact chat models |
-| SmolLM2 135M/360M/1.7B Instruct | 135M-1.7B | ✅ | ✅ | Improved 2nd generation |
-| Qwen2 0.5B/1.5B | 0.5B-1.5B | ✅ | ✅ | Alibaba's efficient models |
-| Qwen2.5 0.5B/1.5B/3B Instruct | 0.5B-3B | ✅ | ✅ | Latest Qwen, excellent quality |
-| TinyLlama 1.1B Chat | 1.1B | ✅ | ✅ | Compact Llama-based chat |
-| StableLM 2 1.6B / Zephyr 1.6B | 1.6B | ✅ | ✅ | Stability AI chat models |
-| StableLM Zephyr 3B | 3B | ✅ | ✅ | Larger StableLM variant |
-| Phi-1/1.5/2 | 1.3B-2.7B | ✅ | ✅ | Microsoft code-focused |
-| Phi-3 Mini 4K Instruct | 3.8B | ✅ | ✅ | Microsoft's latest compact |
-| MiniCPM 2B | 2B | ✅ | ❌ | OpenBMB compact chat |
-
-### Base/Legacy Models (Training & ONNX only)
-
-| Model | Size | GGUF | ONNX | Notes |
-|-------|------|------|------|-------|
-| GPT-2 / DistilGPT-2 | 82M-1.5B | ❌ | ✅ | Great for learning |
-| DialoGPT Small/Medium/Large | 117M-774M | ❌ | ✅ | Conversational |
-| GPT-Neo 125M/1.3B | 125M-1.3B | ❌ | ✅ | Open source GPT |
-| OPT 125M/350M | 125M-350M | ❌ | ✅ | Meta's open models |
-
-### Larger Models
-
-| Model | Size | GGUF | ONNX | Notes |
-|-------|------|------|------|-------|
-| Gemma 2B/7B | 2B-7B | ✅ | ✅ | Google's open models |
-| Llama 2 7B | 7B | ✅ | ⚠️ | Requires authentication |
-| Mistral 7B | 7B | ✅ | ⚠️ | High quality 7B |
+| Model | GGUF | ONNX | Notes |
+|-------|------|------|-------|
+| GPT-2 / DistilGPT-2 | ✅ | ✅ | Great for learning |
+| DialoGPT | ✅ | ✅ | Conversational |
+| Qwen2 | ✅ | ✅ | Excellent quality |
+| Phi-2/3 | ✅ | ✅ | Microsoft's small LLM |
+| Llama 2/3 | ✅ | ⚠️ | Check ONNX compatibility |
+| Mistral | ✅ | ⚠️ | Check ONNX compatibility |
 
 ## ❓ Troubleshooting
 
